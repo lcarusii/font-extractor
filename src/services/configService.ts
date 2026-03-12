@@ -1,15 +1,12 @@
 import { get, set } from 'idb-keyval';
 
-export type AIProvider = 'gemini' | 'openai' | 'qwen' | 'volcengine' | 'zhipu' | 'deepseek' | 'custom';
-
 export interface AIConfig {
-  provider: AIProvider;
+  provider: 'gemini' | 'openai';
   geminiKey: string;
   geminiModel: string;
   openaiKey: string;
   openaiBaseUrl: string;
   openaiModel: string;
-  temperature?: number;
 }
 
 const DEFAULT_CONFIG: AIConfig = {
@@ -19,7 +16,6 @@ const DEFAULT_CONFIG: AIConfig = {
   openaiKey: '',
   openaiBaseUrl: 'https://api.openai.com/v1',
   openaiModel: 'gpt-4o',
-  temperature: 0.1,
 };
 
 export async function loadConfig(): Promise<AIConfig> {

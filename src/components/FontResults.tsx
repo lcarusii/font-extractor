@@ -61,31 +61,6 @@ export function FontResults({ results, isLoading }: FontResultsProps) {
     }
   };
 
-  const groupedResults = React.useMemo(() => {
-    if (!results) return [];
-    const map = new Map<string, FontResult & { textSnippets: string[] }>();
-    
-    results.forEach(result => {
-      const key = result.primaryFont;
-      if (map.has(key)) {
-        const existing = map.get(key)!;
-        if (!existing.textSnippets.includes(result.textSnippet)) {
-          existing.textSnippets.push(result.textSnippet);
-        }
-        if (result.possibleAlternatives) {
-          existing.possibleAlternatives = Array.from(new Set([
-            ...(existing.possibleAlternatives || []), 
-            ...result.possibleAlternatives
-          ]));
-        }
-      } else {
-        map.set(key, { ...result, textSnippets: [result.textSnippet] });
-      }
-    });
-    
-    return Array.from(map.values());
-  }, [results]);
-
   return (
     <div className="w-full max-w-7xl mx-auto mt-12 space-y-8">
       <div className="flex items-center gap-3 px-2">
@@ -96,12 +71,12 @@ export function FontResults({ results, isLoading }: FontResultsProps) {
           识别结果
         </h3>
         <span className="ml-auto text-sm font-medium text-slate-400 bg-slate-100 px-3 py-1 rounded-full">
-          共发现 {groupedResults.length} 种字体
+          共发现 {results.length} 种字体
         </span>
       </div>
       
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {groupedResults.map((result, index) => (
+        {results.map((result, index) => (
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -113,7 +88,7 @@ export function FontResults({ results, isLoading }: FontResultsProps) {
               <h4 className="text-2xl xl:text-3xl font-bold text-slate-900 mb-3 tracking-tight leading-tight">{result.primaryFont}</h4>
               <div className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold border ${getConfidenceColor(result.confidence)}`}>
                 {getConfidenceIcon(result.confidence)}
-                字体识别精度：{result.confidence}
+                置信度：{result.confidence}
               </div>
             </div>
             
@@ -137,13 +112,9 @@ export function FontResults({ results, isLoading }: FontResultsProps) {
                   <Quote size={18} />
                   <span className="text-sm font-bold uppercase tracking-wider">文本片段</span>
                 </div>
-                <div className="space-y-2">
-                  {result.textSnippets.map((snippet, idx) => (
-                    <p key={idx} className="text-lg text-slate-800 font-medium leading-relaxed">
-                      "{snippet}"
-                    </p>
-                  ))}
-                </div>
+                <p className="text-lg text-slate-800 font-medium leading-relaxed">
+                  "{result.textSnippet}"
+                </p>
               </div>
               
               <div className="bg-slate-50/80 rounded-2xl p-5 border border-slate-100">
@@ -151,12 +122,27 @@ export function FontResults({ results, isLoading }: FontResultsProps) {
                   <Layers size={18} />
                   <span className="text-sm font-bold uppercase tracking-wider">相似备选字体</span>
                 </div>
-                <div className="flex flex-wrap gap-2">
+                <div className="flex flex-col gap-3">
                   {result.possibleAlternatives && result.possibleAlternatives.length > 0 ? (
                     result.possibleAlternatives.map((alt, i) => (
-                      <span key={i} className="px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-sm text-slate-700 font-medium shadow-sm">
-                        {alt}
-                      </span>
+                      <div key={i} className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm flex flex-col gap-2">
+                        <div className="flex items-center justify-between">
+                          <span className="text-slate-800 font-bold">{alt.fontName}</span>
+                          <div className={`inline-flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-semibold border ${getConfidenceColor(alt.confidence)}`}>
+                            {getConfidenceIcon(alt.confidence)}
+                            {alt.confidence}
+                          </div>
+                        </div>
+                        {alt.licenseCheck && (
+                          <div className={`mt-1 rounded-lg p-2.5 border text-xs ${alt.licenseCheck.isAllowed ? 'bg-emerald-50/50 border-emerald-100 text-emerald-700' : 'bg-red-50/50 border-red-100 text-red-700'}`}>
+                            <div className="flex items-center gap-1.5 mb-1 font-semibold">
+                              {alt.licenseCheck.isAllowed ? <ShieldCheck size={14} /> : <ShieldAlert size={14} />}
+                              <span>{alt.licenseCheck.isAllowed ? '允许使用' : '存在风险'}</span>
+                            </div>
+                            <p className="opacity-90 leading-relaxed">{alt.licenseCheck.reason}</p>
+                          </div>
+                        )}
+                      </div>
                     ))
                   ) : (
                     <span className="text-sm text-slate-400">无备选字体</span>

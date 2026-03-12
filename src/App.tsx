@@ -1,6 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { ImageUploader } from './components/ImageUploader';
-import { ImageCropper } from './components/ImageCropper';
 import { FontResults } from './components/FontResults';
 import { extractFontsFromImage } from './services/aiService';
 import { getLicenseDocuments, saveLicenseDocument, deleteLicenseDocument, LicenseDocument, saveHistoryRecord, HistoryRecord } from './services/dbService';
@@ -8,14 +7,12 @@ import { AIConfig, loadConfig } from './services/configService';
 import { ConfigModal } from './components/ConfigModal';
 import { AgentChat } from './components/AgentChat';
 import { HistoryModal } from './components/HistoryModal';
-import { Type, Sparkles, ScanText, AlertCircle, Shield, Upload, FileText, X, Trash2, Database, Settings, MessageSquareText, Clock, Crop } from 'lucide-react';
+import { Type, Sparkles, ScanText, AlertCircle, Shield, Upload, FileText, X, Trash2, Database, Settings, MessageSquareText, Clock } from 'lucide-react';
 import { motion } from 'motion/react';
 import * as XLSX from 'xlsx';
 
 export default function App() {
   const [selectedImage, setSelectedImage] = useState<{ base64: string; mimeType: string } | null>(null);
-  const [croppedImage, setCroppedImage] = useState<{ base64: string; mimeType: string } | null>(null);
-  const [isCropping, setIsCropping] = useState(false);
   const [results, setResults] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -52,16 +49,12 @@ export default function App() {
 
   const handleImageSelected = (base64: string, mimeType: string) => {
     setSelectedImage({ base64, mimeType });
-    setCroppedImage(null);
-    setIsCropping(false);
     setResults([]);
     setError(null);
   };
 
   const handleClear = () => {
     setSelectedImage(null);
-    setCroppedImage(null);
-    setIsCropping(false);
     setResults([]);
     setError(null);
   };
@@ -163,26 +156,24 @@ export default function App() {
   };
 
   const handleExtract = async () => {
-    const imageToProcess = croppedImage || selectedImage;
-    if (!imageToProcess || !config) return;
+    if (!selectedImage || !config) return;
 
     setIsLoading(true);
     setError(null);
 
     try {
       const extractedFonts = await extractFontsFromImage(
-        imageToProcess.base64, 
-        imageToProcess.mimeType,
+        selectedImage.base64, 
+        selectedImage.mimeType,
         config,
         brandName.trim() !== '' ? brandName.trim() : undefined,
-        savedLicenses.length > 0 ? savedLicenses : undefined,
-        config.temperature
+        savedLicenses.length > 0 ? savedLicenses : undefined
       );
       setResults(extractedFonts);
 
       // 保存到历史记录
       await saveHistoryRecord({
-        image: imageToProcess,
+        image: selectedImage,
         results: extractedFonts,
         brandName: brandName.trim() !== '' ? brandName.trim() : undefined,
         provider: config.provider
@@ -261,22 +252,11 @@ export default function App() {
           transition={{ duration: 0.5, delay: 0.1 }}
           className="space-y-10 max-w-4xl mx-auto"
         >
-          {isCropping && selectedImage ? (
-            <ImageCropper
-              imageSrc={selectedImage.base64}
-              onCropComplete={(croppedBase64) => {
-                setCroppedImage({ base64: croppedBase64, mimeType: 'image/jpeg' });
-                setIsCropping(false);
-              }}
-              onCancel={() => setIsCropping(false)}
-            />
-          ) : (
-            <ImageUploader
-              selectedImage={croppedImage?.base64 || selectedImage?.base64 || null}
-              onImageSelected={handleImageSelected}
-              onClear={handleClear}
-            />
-          )}
+          <ImageUploader
+            selectedImage={selectedImage?.base64 || null}
+            onImageSelected={handleImageSelected}
+            onClear={handleClear}
+          />
 
           {/* 版权核查区域 (可选) */}
           <div className="bg-white rounded-3xl p-6 md:p-8 border border-slate-200/60 shadow-sm relative overflow-hidden">
@@ -357,25 +337,18 @@ export default function App() {
             </div>
           </div>
 
-          {selectedImage && !results.length && !isLoading && !isCropping && (
+          {selectedImage && !results.length && !isLoading && (
             <motion.div 
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
-              className="flex flex-col sm:flex-row justify-center gap-4 pt-4"
+              className="flex justify-center pt-4"
             >
               <button
-                onClick={() => setIsCropping(true)}
-                className="group flex items-center justify-center gap-2 bg-white border-2 border-slate-200 hover:border-slate-300 text-slate-700 px-8 py-4 rounded-2xl font-semibold text-lg shadow-sm hover:shadow-md transition-all duration-300 active:scale-95"
-              >
-                <Crop size={22} className="text-slate-500 group-hover:text-slate-700" />
-                {croppedImage ? '重新裁剪' : '裁剪图片'}
-              </button>
-              <button
                 onClick={handleExtract}
-                className="group flex items-center justify-center gap-3 bg-slate-900 hover:bg-slate-800 text-white px-10 py-4 rounded-2xl font-semibold text-lg shadow-xl shadow-slate-900/20 hover:shadow-2xl hover:shadow-slate-900/30 transition-all duration-300 active:scale-95"
+                className="group flex items-center gap-3 bg-slate-900 hover:bg-slate-800 text-white px-10 py-4 rounded-full font-semibold text-lg shadow-xl shadow-slate-900/20 hover:shadow-2xl hover:shadow-slate-900/30 transition-all duration-300 active:scale-95"
               >
                 <Sparkles size={22} className="text-blue-400 group-hover:animate-pulse" />
-                {croppedImage ? '识别裁剪区域' : '识别整图'}
+                开始识别字体
               </button>
             </motion.div>
           )}

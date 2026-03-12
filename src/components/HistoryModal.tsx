@@ -29,17 +29,11 @@ export function HistoryModal({ isOpen, onClose, onLoadRecord }: HistoryModalProp
     await loadRecords();
   };
 
-  const [isConfirmingClear, setIsConfirmingClear] = useState(false);
-
   const handleClearAll = async () => {
-    if (!isConfirmingClear) {
-      setIsConfirmingClear(true);
-      setTimeout(() => setIsConfirmingClear(false), 3000);
-      return;
+    if (confirm('确定要清空所有历史记录吗？')) {
+      await clearHistoryRecords();
+      await loadRecords();
     }
-    await clearHistoryRecords();
-    await loadRecords();
-    setIsConfirmingClear(false);
   };
 
   const formatDate = (ts: number) => {
@@ -70,13 +64,9 @@ export function HistoryModal({ isOpen, onClose, onLoadRecord }: HistoryModalProp
               {records.length > 0 && (
                 <button 
                   onClick={handleClearAll}
-                  className={`text-xs font-medium px-3 py-1.5 rounded-lg transition-colors ${
-                    isConfirmingClear 
-                      ? 'bg-red-500 text-white hover:bg-red-600' 
-                      : 'text-red-500 hover:text-red-600 hover:bg-red-50'
-                  }`}
+                  className="text-xs font-medium text-red-500 hover:text-red-600 hover:bg-red-50 px-3 py-1.5 rounded-lg transition-colors"
                 >
-                  {isConfirmingClear ? '再次点击确认清空' : '清空全部'}
+                  清空全部
                 </button>
               )}
               <button onClick={onClose} className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-full transition-colors">
