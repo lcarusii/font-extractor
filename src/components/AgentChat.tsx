@@ -1,8 +1,8 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { chatWithAgent } from '../services/aiService';
 import { AIConfig } from '../services/configService';
-import { LicenseDocument } from '../services/dbService';
-import { MessageSquare, Send, X, Bot, User, Loader2 } from 'lucide-react';
+import { LicenseDocument, getChatHistory, saveChatHistory, clearChatHistory, ChatMessage } from '../services/dbService';
+import { MessageSquare, Send, X, Bot, User, Loader2, Trash2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import Markdown from 'react-markdown';
 
@@ -13,14 +13,8 @@ interface AgentChatProps {
   config: AIConfig;
 }
 
-interface Message {
-  id: string;
-  role: 'user' | 'assistant';
-  content: string;
-}
-
 export function AgentChat({ isOpen, onClose, knowledgeBase, config }: AgentChatProps) {
-  const [messages, setMessages] = useState<Message[]>([
+  const [messages, setMessages] = useState<ChatMessage[]>([
     {
       id: 'welcome',
       role: 'assistant',
@@ -32,15 +26,42 @@ export function AgentChat({ isOpen, onClose, knowledgeBase, config }: AgentChatP
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    if (isOpen) {
+      getChatHistory().then(history => {
+        if (history && history.length > 0) {
+          setMessages(history);
+        }
+      });
+    }
+  }, [isOpen]);
+
+  useEffect(() => {
+    if (messages.length > 1) {
+      saveChatHistory(messages);
+    }
+  }, [messages]);
+
+  useEffect(() => {
     if (messagesEndRef.current) {
       messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
     }
   }, [messages]);
 
+  const handleClearChat = async () => {
+    await clearChatHistory();
+    setMessages([
+      {
+        id: 'welcome',
+        role: 'assistant',
+        content: '你好！我是版权知识库智能体。我已经加载了您上传的授权文件，请问有什么我可以帮您的？例如：“Acme 公司可以使用 Roboto 字体商用吗？”'
+      }
+    ]);
+  };
+
   const handleSend = async () => {
     if (!input.trim() || isLoading) return;
 
-    const userMsg: Message = { id: Date.now().toString(), role: 'user', content: input.trim() };
+    const userMsg: ChatMessage = { id: Date.now().toString(), role: 'user', content: input.trim() };
     setMessages(prev => [...prev, userMsg]);
     setInput('');
     setIsLoading(true);
@@ -96,12 +117,23 @@ export function AgentChat({ isOpen, onClose, knowledgeBase, config }: AgentChatP
                 </p>
               </div>
             </div>
-            <button 
-              onClick={onClose}
-              className="p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-200/50 rounded-full transition-colors"
-            >
-              <X size={20} />
-            </button>
+            <div className="flex items-center gap-2">
+              {messages.length > 1 && (
+                <button 
+                  onClick={handleClearChat}
+                  className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-full transition-colors"
+                  title="清空对话"
+                >
+                  <Trash2 size={18} />
+                </button>
+              )}
+              <button 
+                onClick={onClose}
+                className="p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-200/50 rounded-full transition-colors"
+              >
+                <X size={20} />
+              </button>
+            </div>
           </div>
 
           {/* Messages Area */}

@@ -1,18 +1,44 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import ReactCrop, { type Crop, type PixelCrop } from 'react-image-crop';
 import 'react-image-crop/dist/ReactCrop.css';
-import { Check, X } from 'lucide-react';
+import { Check, X, MousePointer2 } from 'lucide-react';
 
 interface ImageCropperProps {
   imageSrc: string;
+  initialRegions?: {x: number, y: number, width: number, height: number}[] | null;
   onCropComplete: (croppedBase64: string) => void;
   onCancel: () => void;
 }
 
-export function ImageCropper({ imageSrc, onCropComplete, onCancel }: ImageCropperProps) {
+export function ImageCropper({ imageSrc, initialRegions, onCropComplete, onCancel }: ImageCropperProps) {
   const [crop, setCrop] = useState<Crop>();
   const [completedCrop, setCompletedCrop] = useState<PixelCrop | null>(null);
   const imgRef = useRef<HTMLImageElement>(null);
+
+  // Set initial crop if regions are provided
+  useEffect(() => {
+    if (initialRegions && initialRegions.length > 0 && imgRef.current) {
+      // Just select the first region by default for now
+      const region = initialRegions[0];
+      setCrop({
+        unit: '%',
+        x: region.x,
+        y: region.y,
+        width: region.width,
+        height: region.height
+      });
+    }
+  }, [initialRegions]);
+
+  const handleRegionClick = (region: {x: number, y: number, width: number, height: number}) => {
+    setCrop({
+      unit: '%',
+      x: region.x,
+      y: region.y,
+      width: region.width,
+      height: region.height
+    });
+  };
 
   const handleCropComplete = async () => {
     if (!completedCrop || !imgRef.current) {
@@ -62,6 +88,26 @@ export function ImageCropper({ imageSrc, onCropComplete, onCancel }: ImageCroppe
         <h3 className="text-lg font-bold text-slate-800">裁剪图片</h3>
         <p className="text-sm text-slate-500">框选需要识别文字的区域，以提高准确率</p>
       </div>
+      
+      {initialRegions && initialRegions.length > 0 && (
+        <div className="mb-4 p-3 bg-indigo-50 border border-indigo-100 rounded-xl flex items-start gap-3">
+          <MousePointer2 className="text-indigo-500 shrink-0 mt-0.5" size={18} />
+          <div>
+            <p className="text-sm font-medium text-indigo-800 mb-2">AI 已自动检测到 {initialRegions.length} 处文字区域：</p>
+            <div className="flex flex-wrap gap-2">
+              {initialRegions.map((region, idx) => (
+                <button
+                  key={idx}
+                  onClick={() => handleRegionClick(region)}
+                  className="px-3 py-1.5 bg-white border border-indigo-200 rounded-lg text-xs font-medium text-indigo-600 hover:bg-indigo-600 hover:text-white transition-colors shadow-sm"
+                >
+                  区域 {idx + 1}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
       
       <div className="relative w-full overflow-hidden rounded-xl bg-slate-50 border border-slate-200 flex justify-center items-center min-h-[300px] max-h-[60vh]">
         <ReactCrop

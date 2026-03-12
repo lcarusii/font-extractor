@@ -27,13 +27,27 @@ export async function extractFontsFromImage(
   mimeType: string,
   config: AIConfig,
   brandName?: string,
-  licenseFiles?: LicenseDocument[]
+  licenseFiles?: LicenseDocument[],
+  temperature?: number
 ): Promise<FontResult[]> {
-  let prompt = `分析这张图片中的排版，识别文本所使用的字体。请将图片中的文本划分为不同的片段（textSnippet）。对于每个不同的文本片段，请只返回一个结果对象。在这个对象中，提供最可能的首选字体名称（primaryFont），并列出 2-3 个视觉上最相似的备选字体（possibleAlternatives）。请务必不要为同一个文本片段返回多个结果对象。请务必使用中文返回结果，并以结构化的 JSON 格式返回，包含一个名为 "fonts" 的数组，数组中每个对象包含：textSnippet(文本片段), primaryFont(首选字体), confidence(首选字体的置信度：高/中/低), possibleAlternatives(备选字体对象数组，每个对象包含 fontName(字体名称) 和 confidence(置信度：高/中/低))。`;
+  const temp = temperature ?? config.temperature ?? 0.1;
+  let prompt = `你是一个顶级的字体排印专家和版权律师助手。请仔细分析这张图片中的排版，精准识别文本所使用的具体字体。
+
+【任务 1：字体识别】
+- 必须提供具体的商业或开源字体名称（例如："思源黑体", "Helvetica Neue", "方正兰亭黑"），绝不能使用泛指的分类名称（如 "Sans-serif", "黑体"）。
+- **重要：如果图片中多处文本使用了同一种字体，请将它们合并为一条记录，并在 textSnippet 中包含所有相关的文本片段（用逗号分隔）。不要为同一种字体生成多条重复的记录。**
+- textSnippet: 提取出使用该字体的对应文本片段（如果是多处，用逗号分隔）。
+- primaryFont: 最可能的首选字体名称。
+- possibleAlternatives: 提供 2-3 个视觉特征高度相似的备选字体。每个备选字体必须是一个对象，包含 fontName (字体名称) 和 confidence (与原图字体相似的置信度：高/中/低)。
+- confidence: 首选字体识别的置信度（高/中/低）。`;
 
   let licenseTextContext = "";
   if (brandName && licenseFiles && licenseFiles.length > 0) {
-    prompt += `\n\n此外，用户提供了 ${licenseFiles.length} 个授权/规则文件，并询问客户品牌“${brandName}”是否可以使用这些识别出的字体。请阅读提供的所有文件内容，并为首选字体（primaryFont）以及每一个备选字体（possibleAlternatives 中的每一项）增加一个 licenseCheck 对象字段（包含 isAllowed: boolean 和 reason: string），判断该品牌是否被允许使用该字体，并给出具体的理由（如果文件中没有提及该字体或无法确定，请将 isAllowed 设为 false，并在 reason 中说明“文件中未提及此字体，无法确定”）。`;
+    prompt += `\n\n【任务 2：版权核查】
+用户提供了 ${licenseFiles.length} 个授权/规则文件，并询问客户品牌“${brandName}”是否可以合法商用这些识别出的字体。
+请【绝对严格】依据提供的授权文件内容进行核查，并为首选字体(primaryFont)以及每个备选字体(possibleAlternatives中的每一项)都增加一个 licenseCheck 对象字段：
+- isAllowed (boolean): 必须绝对基于用户上传的文件库进行判断。只有当文件中明确允许该品牌（或所有用户）商用此字体时，才返回 true。只要该字体没有在文件库中出现，或者未明确授权，一律返回 false（即使它是众所周知的免费开源字体）。
+- reason (string): 引用文件中的具体条款解释原因。如果文件中完全没有提及该字体，请务必说明“未在用户上传的授权文件库中找到该字体的授权记录，因此判定为不可用”。`;
     
     // Extract text from text-based files for OpenAI
     licenseFiles.forEach(f => {
@@ -46,6 +60,10 @@ export async function extractFontsFromImage(
       }
     });
   }
+
+  prompt += `\n\n【输出要求】
+请务必使用中文返回结果，并严格以结构化的 JSON 格式返回。JSON 必须包含一个名为 "fonts" 的数组，数组中每个对象包含上述要求的字段。
+注意：请直接输出纯 JSON 字符串，不要包含任何多余的解释性文本，也不要使用 \`\`\`json 这样的 Markdown 标记包裹。`;
 
   if (config.provider === 'gemini') {
     const ai = new GoogleGenAI({ apiKey: config.geminiKey });
@@ -74,7 +92,7 @@ export async function extractFontsFromImage(
       model: config.geminiModel,
       contents: contents,
       config: {
-        temperature: 0.1, // Lower temperature for more deterministic/accurate font recognition
+        temperature: temp,
         responseMimeType: "application/json",
         responseSchema: {
           type: Type.OBJECT,
@@ -88,7 +106,7 @@ export async function extractFontsFromImage(
                   primaryFont: { type: Type.STRING },
                   possibleAlternatives: { 
                     type: Type.ARRAY,
-                    items: {
+                    items: { 
                       type: Type.OBJECT,
                       properties: {
                         fontName: { type: Type.STRING },
@@ -147,7 +165,10 @@ export async function extractFontsFromImage(
       openAiMessages[0].content.push({ type: 'text', text: `\n授权文件内容：\n${licenseTextContext}` });
     }
 
-    const res = await fetch(`${config.openaiBaseUrl}/chat/completions`, {
+    const baseUrl = config.openaiBaseUrl.replace(/\/+$/, '');
+    const url = baseUrl.endsWith('/chat/completions') ? baseUrl : `${baseUrl}/chat/completions`;
+
+    const res = await fetch(url, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -156,20 +177,153 @@ export async function extractFontsFromImage(
       body: JSON.stringify({
         model: config.openaiModel,
         messages: openAiMessages,
-        temperature: 0.1,
-        response_format: { type: "json_object" }
+        temperature: temp
       })
     });
 
     if (!res.ok) {
-      const err = await res.json();
-      throw new Error(err.error?.message || 'OpenAI API Error');
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error?.message || `API Error: ${res.status} ${res.statusText}`);
     }
 
     const data = await res.json();
-    const content = data.choices[0].message.content;
-    const parsed = JSON.parse(content);
-    return parsed.fonts || [];
+    let content = data.choices[0].message.content;
+    
+    // Extract JSON if wrapped in markdown
+    const jsonMatch = content.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
+    if (jsonMatch) {
+      content = jsonMatch[1];
+    } else {
+      // Try to extract JSON object or array if there is extra text around it
+      const firstBrace = content.indexOf('{');
+      const lastBrace = content.lastIndexOf('}');
+      const firstBracket = content.indexOf('[');
+      const lastBracket = content.lastIndexOf(']');
+      
+      let start = -1;
+      let end = -1;
+      
+      if (firstBrace !== -1 && lastBrace !== -1 && (firstBracket === -1 || firstBrace < firstBracket)) {
+        start = firstBrace;
+        end = lastBrace + 1;
+      } else if (firstBracket !== -1 && lastBracket !== -1) {
+        start = firstBracket;
+        end = lastBracket + 1;
+      }
+      
+      if (start !== -1 && end !== -1) {
+        content = content.substring(start, end);
+      }
+    }
+    
+    try {
+      const parsed = JSON.parse(content);
+      return parsed.fonts || parsed || [];
+    } catch (e) {
+      console.error("Failed to parse JSON:", content);
+      throw new Error("模型返回的数据格式不正确，无法解析。这通常是因为模型没有严格按照 JSON 格式输出。请重试。");
+    }
+  }
+}
+
+export async function detectTextRegions(
+  base64Image: string, 
+  mimeType: string,
+  config: AIConfig
+): Promise<{x: number, y: number, width: number, height: number}[] | null> {
+  const prompt = `你是一个专业的计算机视觉助手。请分析这张图片，找出其中包含文字的主要区域。
+请返回一个 JSON 数组，数组中的每个对象代表一个文字区域的边界框（bounding box）。
+边界框的坐标和尺寸请使用相对于图片宽度和高度的百分比（0 到 100 之间的数字）。
+每个对象必须包含以下字段：
+- x: 区域左上角的 X 坐标百分比
+- y: 区域左上角的 Y 坐标百分比
+- width: 区域的宽度百分比
+- height: 区域的高度百分比
+
+如果图片中没有文字，请返回空数组 []。
+请直接返回纯 JSON 数组，不要包含任何其他文本或 Markdown 标记。`;
+
+  if (config.provider === 'gemini') {
+    const ai = new GoogleGenAI({ apiKey: config.geminiKey });
+    const response = await ai.models.generateContent({
+      model: config.geminiModel,
+      contents: [
+        {
+          inlineData: {
+            data: base64Image.split(',')[1],
+            mimeType: mimeType,
+          },
+        },
+        prompt
+      ],
+      config: {
+        temperature: 0.1,
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.ARRAY,
+          items: {
+            type: Type.OBJECT,
+            properties: {
+              x: { type: Type.NUMBER },
+              y: { type: Type.NUMBER },
+              width: { type: Type.NUMBER },
+              height: { type: Type.NUMBER }
+            },
+            required: ["x", "y", "width", "height"]
+          }
+        }
+      }
+    });
+
+    const text = response.text;
+    if (!text) return null;
+    try {
+      return JSON.parse(text);
+    } catch (e) {
+      console.error("Failed to parse regions JSON", e);
+      return null;
+    }
+  } else {
+    // OpenAI Compatible API
+    if (!config.openaiKey) throw new Error("OpenAI API Key is required.");
+    
+    const baseUrl = config.openaiBaseUrl.replace(/\/+$/, '');
+    const url = baseUrl.endsWith('/chat/completions') ? baseUrl : `${baseUrl}/chat/completions`;
+
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${config.openaiKey}`
+      },
+      body: JSON.stringify({
+        model: config.openaiModel,
+        messages: [
+          {
+            role: 'user',
+            content: [
+              { type: 'text', text: prompt },
+              { type: 'image_url', image_url: { url: base64Image } }
+            ]
+          }
+        ],
+        temperature: 0.1
+      })
+    });
+
+    if (!res.ok) return null;
+    const data = await res.json();
+    let content = data.choices[0].message.content;
+    
+    const jsonMatch = content.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
+    if (jsonMatch) content = jsonMatch[1];
+    
+    try {
+      return JSON.parse(content);
+    } catch (e) {
+      console.error("Failed to parse regions JSON", e);
+      return null;
+    }
   }
 }
 
@@ -203,7 +357,7 @@ export async function chatWithAgent(
 1. 回答必须极度简明扼要，直接给出结论，不要长篇大论。
 2. 采用最简单的纯文本排版，不要使用复杂的 Markdown 格式（如粗体、斜体、多级标题或表格）。
 3. 不要说任何废话或客套话。
-4. 如果知识库中没有相关信息，请结合你的专业知识回答，但要明确指出该信息不在知识库中。
+4. 【严格审查规则】：绝对基于用户上传的文件库进行判断。只要用户询问的字体没有在文件库中出现，或者未明确授权，一律判定为不可用（即使它是众所周知的免费开源字体），并明确告知“未在知识库中找到该字体的授权记录，判定为不可用”。
 
 知识库内容：
 ${kbText || '（暂无文本知识库）'}`;
@@ -211,19 +365,32 @@ ${kbText || '（暂无文本知识库）'}`;
   if (config.provider === 'gemini') {
     const ai = new GoogleGenAI({ apiKey: config.geminiKey });
     
-    const contents = messages.map(m => ({
+    // Gemini expects the first message to be from the user.
+    // If the first message in the history is from the assistant, we need to handle it.
+    let formattedMessages = messages.map(m => ({
       role: m.role === 'assistant' ? 'model' : 'user',
       parts: [{ text: m.content }]
     }));
-    
-    if (contents.length > 0 && contents[0].role === 'user') {
-       contents[0].parts.unshift({ text: systemPrompt });
-       contents[0].parts.push(...geminiParts);
+
+    // Ensure the first message is from the user for Gemini
+    if (formattedMessages.length > 0 && formattedMessages[0].role === 'model') {
+       formattedMessages.unshift({
+         role: 'user',
+         parts: [{ text: '你好' }]
+       });
+    }
+
+    // Inject system prompt and files into the first user message
+    if (formattedMessages.length > 0 && formattedMessages[0].role === 'user') {
+       formattedMessages[0].parts.unshift({ text: systemPrompt });
+       if (geminiParts.length > 0) {
+         formattedMessages[0].parts.push(...geminiParts);
+       }
     }
 
     const response = await ai.models.generateContent({
       model: config.geminiModel,
-      contents: contents
+      contents: formattedMessages
     });
     return response.text || '';
   } else {
@@ -234,7 +401,10 @@ ${kbText || '（暂无文本知识库）'}`;
       ...messages.map(m => ({ role: m.role, content: m.content }))
     ];
 
-    const res = await fetch(`${config.openaiBaseUrl}/chat/completions`, {
+    const baseUrl = config.openaiBaseUrl.replace(/\/+$/, '');
+    const url = baseUrl.endsWith('/chat/completions') ? baseUrl : `${baseUrl}/chat/completions`;
+
+    const res = await fetch(url, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -247,8 +417,8 @@ ${kbText || '（暂无文本知识库）'}`;
     });
 
     if (!res.ok) {
-      const err = await res.json();
-      throw new Error(err.error?.message || 'OpenAI API Error');
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error?.message || `API Error: ${res.status} ${res.statusText}`);
     }
 
     const data = await res.json();

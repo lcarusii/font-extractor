@@ -18,6 +18,12 @@ export interface HistoryRecord {
   provider: string;
 }
 
+export interface ChatMessage {
+  id: string;
+  role: 'user' | 'assistant';
+  content: string;
+}
+
 export async function saveLicenseDocument(doc: Omit<LicenseDocument, 'id' | 'timestamp'>): Promise<LicenseDocument> {
   const id = crypto.randomUUID();
   const newDoc: LicenseDocument = {
@@ -65,4 +71,17 @@ export async function deleteHistoryRecord(id: string): Promise<void> {
 
 export async function clearHistoryRecords(): Promise<void> {
   await set('font_history', []);
+}
+
+export async function getChatHistory(): Promise<ChatMessage[]> {
+  const messages = await get<ChatMessage[]>('chat_history');
+  return messages || [];
+}
+
+export async function saveChatHistory(messages: ChatMessage[]): Promise<void> {
+  await set('chat_history', messages);
+}
+
+export async function clearChatHistory(): Promise<void> {
+  await set('chat_history', []);
 }
