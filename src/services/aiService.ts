@@ -88,59 +88,68 @@ export async function extractFontsFromImage(
     }
     contents.push(prompt);
 
-    const response = await ai.models.generateContent({
-      model: config.geminiModel,
-      contents: contents,
-      config: {
-        temperature: temp,
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            fonts: {
-              type: Type.ARRAY,
-              items: {
-                type: Type.OBJECT,
-                properties: {
-                  textSnippet: { type: Type.STRING },
-                  primaryFont: { type: Type.STRING },
-                  possibleAlternatives: { 
-                    type: Type.ARRAY,
-                    items: { 
+    let response;
+    try {
+      response = await ai.models.generateContent({
+        model: config.geminiModel,
+        contents: contents,
+        config: {
+          temperature: temp,
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              fonts: {
+                type: Type.ARRAY,
+                items: {
+                  type: Type.OBJECT,
+                  properties: {
+                    textSnippet: { type: Type.STRING },
+                    primaryFont: { type: Type.STRING },
+                    possibleAlternatives: { 
+                      type: Type.ARRAY,
+                      items: { 
+                        type: Type.OBJECT,
+                        properties: {
+                          fontName: { type: Type.STRING },
+                          confidence: { type: Type.STRING },
+                          licenseCheck: {
+                            type: Type.OBJECT,
+                            properties: {
+                              isAllowed: { type: Type.BOOLEAN },
+                              reason: { type: Type.STRING }
+                            },
+                            required: ["isAllowed", "reason"]
+                          }
+                        },
+                        required: ["fontName", "confidence"]
+                      }
+                    },
+                    confidence: { type: Type.STRING },
+                    licenseCheck: {
                       type: Type.OBJECT,
                       properties: {
-                        fontName: { type: Type.STRING },
-                        confidence: { type: Type.STRING },
-                        licenseCheck: {
-                          type: Type.OBJECT,
-                          properties: {
-                            isAllowed: { type: Type.BOOLEAN },
-                            reason: { type: Type.STRING }
-                          },
-                          required: ["isAllowed", "reason"]
-                        }
+                        isAllowed: { type: Type.BOOLEAN },
+                        reason: { type: Type.STRING }
                       },
-                      required: ["fontName", "confidence"]
+                      required: ["isAllowed", "reason"]
                     }
                   },
-                  confidence: { type: Type.STRING },
-                  licenseCheck: {
-                    type: Type.OBJECT,
-                    properties: {
-                      isAllowed: { type: Type.BOOLEAN },
-                      reason: { type: Type.STRING }
-                    },
-                    required: ["isAllowed", "reason"]
-                  }
-                },
-                required: ["textSnippet", "primaryFont", "possibleAlternatives", "confidence"],
+                  required: ["textSnippet", "primaryFont", "possibleAlternatives", "confidence"],
+                }
               }
-            }
+            },
+            required: ["fonts"]
           },
-          required: ["fonts"]
         },
-      },
-    });
+      });
+    } catch (e: any) {
+      console.error("Gemini API error:", e);
+      if (e.message?.includes('fetch') || e.message?.includes('network')) {
+        throw new Error(`网络请求失败 (Failed to fetch)。如果您在中国大陆，可能需要配置代理才能访问 Google Gemini API。`);
+      }
+      throw e;
+    }
 
     const text = response.text;
     if (!text) throw new Error("No response from Gemini.");
@@ -168,18 +177,24 @@ export async function extractFontsFromImage(
     const baseUrl = config.openaiBaseUrl.replace(/\/+$/, '');
     const url = baseUrl.endsWith('/chat/completions') ? baseUrl : `${baseUrl}/chat/completions`;
 
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${config.openaiKey}`
-      },
-      body: JSON.stringify({
-        model: config.openaiModel,
-        messages: openAiMessages,
-        temperature: temp
-      })
-    });
+    let res: Response;
+    try {
+      res = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${config.openaiKey}`
+        },
+        body: JSON.stringify({
+          model: config.openaiModel,
+          messages: openAiMessages,
+          temperature: temp
+        })
+      });
+    } catch (e: any) {
+      console.error("Fetch error:", e);
+      throw new Error(`网络请求失败 (Failed to fetch)。这通常是因为跨域限制 (CORS) 或网络连接问题。请检查您的 API 地址 (${url}) 是否支持跨域请求，或者尝试更换网络环境。`);
+    }
 
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
@@ -245,35 +260,44 @@ export async function detectTextRegions(
 
   if (config.provider === 'gemini') {
     const ai = new GoogleGenAI({ apiKey: config.geminiKey });
-    const response = await ai.models.generateContent({
-      model: config.geminiModel,
-      contents: [
-        {
-          inlineData: {
-            data: base64Image.split(',')[1],
-            mimeType: mimeType,
-          },
-        },
-        prompt
-      ],
-      config: {
-        temperature: 0.1,
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: Type.ARRAY,
-          items: {
-            type: Type.OBJECT,
-            properties: {
-              x: { type: Type.NUMBER },
-              y: { type: Type.NUMBER },
-              width: { type: Type.NUMBER },
-              height: { type: Type.NUMBER }
+    let response;
+    try {
+      response = await ai.models.generateContent({
+        model: config.geminiModel,
+        contents: [
+          {
+            inlineData: {
+              data: base64Image.split(',')[1],
+              mimeType: mimeType,
             },
-            required: ["x", "y", "width", "height"]
+          },
+          prompt
+        ],
+        config: {
+          temperature: 0.1,
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: Type.ARRAY,
+            items: {
+              type: Type.OBJECT,
+              properties: {
+                x: { type: Type.NUMBER },
+                y: { type: Type.NUMBER },
+                width: { type: Type.NUMBER },
+                height: { type: Type.NUMBER }
+              },
+              required: ["x", "y", "width", "height"]
+            }
           }
         }
+      });
+    } catch (e: any) {
+      console.error("Gemini API error:", e);
+      if (e.message?.includes('fetch') || e.message?.includes('network')) {
+        throw new Error(`网络请求失败 (Failed to fetch)。如果您在中国大陆，可能需要配置代理才能访问 Google Gemini API。`);
       }
-    });
+      throw e;
+    }
 
     const text = response.text;
     if (!text) return null;
@@ -290,26 +314,32 @@ export async function detectTextRegions(
     const baseUrl = config.openaiBaseUrl.replace(/\/+$/, '');
     const url = baseUrl.endsWith('/chat/completions') ? baseUrl : `${baseUrl}/chat/completions`;
 
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${config.openaiKey}`
-      },
-      body: JSON.stringify({
-        model: config.openaiModel,
-        messages: [
-          {
-            role: 'user',
-            content: [
-              { type: 'text', text: prompt },
-              { type: 'image_url', image_url: { url: base64Image } }
-            ]
-          }
-        ],
-        temperature: 0.1
-      })
-    });
+    let res: Response;
+    try {
+      res = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${config.openaiKey}`
+        },
+        body: JSON.stringify({
+          model: config.openaiModel,
+          messages: [
+            {
+              role: 'user',
+              content: [
+                { type: 'text', text: prompt },
+                { type: 'image_url', image_url: { url: base64Image } }
+              ]
+            }
+          ],
+          temperature: 0.1
+        })
+      });
+    } catch (e: any) {
+      console.error("Fetch error:", e);
+      throw new Error(`网络请求失败 (Failed to fetch)。这通常是因为跨域限制 (CORS) 或网络连接问题。请检查您的 API 地址 (${url}) 是否支持跨域请求，或者尝试更换网络环境。`);
+    }
 
     if (!res.ok) return null;
     const data = await res.json();
@@ -388,10 +418,19 @@ ${kbText || '（暂无文本知识库）'}`;
        }
     }
 
-    const response = await ai.models.generateContent({
-      model: config.geminiModel,
-      contents: formattedMessages
-    });
+    let response;
+    try {
+      response = await ai.models.generateContent({
+        model: config.geminiModel,
+        contents: formattedMessages
+      });
+    } catch (e: any) {
+      console.error("Gemini API error:", e);
+      if (e.message?.includes('fetch') || e.message?.includes('network')) {
+        throw new Error(`网络请求失败 (Failed to fetch)。如果您在中国大陆，可能需要配置代理才能访问 Google Gemini API。`);
+      }
+      throw e;
+    }
     return response.text || '';
   } else {
     // OpenAI Compatible API
@@ -404,17 +443,23 @@ ${kbText || '（暂无文本知识库）'}`;
     const baseUrl = config.openaiBaseUrl.replace(/\/+$/, '');
     const url = baseUrl.endsWith('/chat/completions') ? baseUrl : `${baseUrl}/chat/completions`;
 
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${config.openaiKey}`
-      },
-      body: JSON.stringify({
-        model: config.openaiModel,
-        messages: openAiMessages
-      })
-    });
+    let res: Response;
+    try {
+      res = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${config.openaiKey}`
+        },
+        body: JSON.stringify({
+          model: config.openaiModel,
+          messages: openAiMessages
+        })
+      });
+    } catch (e: any) {
+      console.error("Fetch error:", e);
+      throw new Error(`网络请求失败 (Failed to fetch)。这通常是因为跨域限制 (CORS) 或网络连接问题。请检查您的 API 地址 (${url}) 是否支持跨域请求，或者尝试更换网络环境。`);
+    }
 
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
@@ -423,5 +468,118 @@ ${kbText || '（暂无文本知识库）'}`;
 
     const data = await res.json();
     return data.choices[0].message.content;
+  }
+}
+
+export async function extractBrandsFromKnowledgeBase(
+  knowledgeBase: LicenseDocument[],
+  config: AIConfig
+): Promise<string[]> {
+  if (!knowledgeBase || knowledgeBase.length === 0) return [];
+
+  let kbText = '';
+  const geminiParts: any[] = [];
+
+  for (const doc of knowledgeBase) {
+    if (doc.mimeType.includes('text') || doc.mimeType.includes('json') || doc.mimeType.includes('markdown')) {
+      try {
+        const text = atob(doc.base64.split(',')[1]);
+        kbText += `\n--- 文档: ${doc.name} ---\n${text}\n`;
+      } catch (e) {}
+    }
+    if (config.provider === 'gemini' && doc.mimeType.includes('pdf')) {
+       geminiParts.push({
+         inlineData: {
+           data: doc.base64.split(',')[1],
+           mimeType: doc.mimeType
+         }
+       });
+    }
+  }
+
+  const prompt = `你是一个专业的文本分析助手。请分析以下授权文件内容，提取出其中提及的所有被授权方（客户品牌、公司名称、产品名称等）。
+请返回一个 JSON 数组，数组中只包含品牌名称的字符串。
+如果没有找到任何明确的品牌或公司名称，请返回空数组 []。
+请直接返回纯 JSON 数组，不要包含任何其他文本或 Markdown 标记（如 \`\`\`json）。
+
+授权文件内容：
+${kbText || '（见附件）'}`;
+
+  if (config.provider === 'gemini') {
+    const ai = new GoogleGenAI({ apiKey: config.geminiKey });
+    const contents: any[] = [{ role: 'user', parts: [{ text: prompt }, ...geminiParts] }];
+    
+    let response;
+    try {
+      response = await ai.models.generateContent({
+        model: config.geminiModel,
+        contents: contents,
+        config: {
+          temperature: 0.1,
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: Type.ARRAY,
+            items: { type: Type.STRING }
+          }
+        }
+      });
+    } catch (e: any) {
+      console.error("Gemini API error:", e);
+      if (e.message?.includes('fetch') || e.message?.includes('network')) {
+        throw new Error(`网络请求失败 (Failed to fetch)。如果您在中国大陆，可能需要配置代理才能访问 Google Gemini API。`);
+      }
+      throw e;
+    }
+
+    const text = response.text;
+    if (!text) return [];
+    try {
+      return JSON.parse(text);
+    } catch (e) {
+      return [];
+    }
+  } else {
+    // OpenAI Compatible API
+    if (!config.openaiKey) throw new Error("OpenAI API Key is required.");
+    
+    const baseUrl = config.openaiBaseUrl.replace(/\/+$/, '');
+    const url = baseUrl.endsWith('/chat/completions') ? baseUrl : `${baseUrl}/chat/completions`;
+
+    let res: Response;
+    try {
+      res = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${config.openaiKey}`
+        },
+        body: JSON.stringify({
+          model: config.openaiModel,
+          messages: [{ role: 'user', content: prompt }],
+          temperature: 0.1
+        })
+      });
+    } catch (e: any) {
+      console.error("Fetch error:", e);
+      throw new Error(`网络请求失败 (Failed to fetch)。这通常是因为跨域限制 (CORS) 或网络连接问题。请检查您的 API 地址 (${url}) 是否支持跨域请求，或者尝试更换网络环境。`);
+    }
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error?.message || `API Error: ${res.status} ${res.statusText}`);
+    }
+
+    const data = await res.json();
+    let content = data.choices[0].message.content;
+    
+    const jsonMatch = content.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
+    if (jsonMatch) content = jsonMatch[1];
+    
+    try {
+      const parsed = JSON.parse(content);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch (e) {
+      return [];
+    }
   }
 }

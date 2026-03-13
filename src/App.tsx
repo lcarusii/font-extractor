@@ -2,13 +2,13 @@ import React, { useState, useRef, useEffect } from 'react';
 import { ImageUploader } from './components/ImageUploader';
 import { ImageCropper } from './components/ImageCropper';
 import { FontResults } from './components/FontResults';
-import { extractFontsFromImage, detectTextRegions } from './services/aiService';
+import { extractFontsFromImage, detectTextRegions, extractBrandsFromKnowledgeBase } from './services/aiService';
 import { getLicenseDocuments, saveLicenseDocument, deleteLicenseDocument, LicenseDocument, saveHistoryRecord, HistoryRecord } from './services/dbService';
 import { AIConfig, loadConfig } from './services/configService';
 import { ConfigModal } from './components/ConfigModal';
 import { AgentChat } from './components/AgentChat';
 import { HistoryModal } from './components/HistoryModal';
-import { Type, Sparkles, ScanText, AlertCircle, Shield, Upload, FileText, X, Trash2, Database, Settings, MessageSquareText, Clock, Crop, Focus } from 'lucide-react';
+import { Type, Sparkles, ScanText, AlertCircle, Shield, Upload, FileText, X, Trash2, Database, Settings, MessageSquareText, Clock, Crop, Focus, Wand2, Loader2 } from 'lucide-react';
 import { motion } from 'motion/react';
 import * as XLSX from 'xlsx';
 
@@ -36,6 +36,8 @@ export default function App() {
   const [brandName, setBrandName] = useState('');
   const [savedLicenses, setSavedLicenses] = useState<LicenseDocument[]>([]);
   const [isUploadingLicense, setIsUploadingLicense] = useState(false);
+  const [extractedBrands, setExtractedBrands] = useState<string[]>([]);
+  const [isExtractingBrands, setIsExtractingBrands] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -49,6 +51,26 @@ export default function App() {
       setSavedLicenses(docs);
     } catch (err) {
       console.error("Failed to load licenses:", err);
+    }
+  };
+
+  const handleExtractBrands = async () => {
+    if (!config || savedLicenses.length === 0) return;
+    setIsExtractingBrands(true);
+    try {
+      const brands = await extractBrandsFromKnowledgeBase(savedLicenses, config);
+      if (brands && brands.length > 0) {
+        setExtractedBrands(brands);
+        if (brands.length === 1 && !brandName) {
+          setBrandName(brands[0]);
+        }
+      } else {
+        alert("未能在授权文件中识别到明确的品牌名称。");
+      }
+    } catch (e: any) {
+      alert(e.message);
+    } finally {
+      setIsExtractingBrands(false);
     }
   };
 
@@ -372,16 +394,53 @@ export default function App() {
             
             <div className="flex flex-col gap-6 flex-grow">
               <div>
-                <label className="block text-sm font-semibold text-slate-700 mb-2">客户品牌名称</label>
-                <input 
-                  type="text" 
-                  value={brandName}
-                  onChange={(e) => setBrandName(e.target.value)}
-                  placeholder="例如：Acme Corp"
-                  className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 outline-none transition-all bg-slate-50 hover:bg-white focus:bg-white"
-                />
+                <div className="flex items-center justify-between mb-2">
+                  <label className="block text-sm font-semibold text-slate-700">客户品牌名称</label>
+                  {savedLicenses.length > 0 && (
+                    <button
+                      onClick={handleExtractBrands}
+                      disabled={isExtractingBrands}
+                      className="text-xs text-blue-600 hover:text-blue-700 flex items-center gap-1 font-medium bg-blue-50 hover:bg-blue-100 px-2 py-1 rounded-md transition-colors disabled:opacity-50"
+                    >
+                      {isExtractingBrands ? <Loader2 size={12} className="animate-spin" /> : <Wand2 size={12} />}
+                      自动识别
+                    </button>
+                  )}
+                </div>
+                <div className="relative">
+                  <input 
+                    type="text" 
+                    value={brandName}
+                    onChange={(e) => setBrandName(e.target.value)}
+                    placeholder="例如：Acme Corp"
+                    className="w-full px-4 py-3 pr-10 rounded-xl border border-slate-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 outline-none transition-all bg-slate-50 hover:bg-white focus:bg-white"
+                  />
+                  {brandName && (
+                    <button
+                      onClick={() => setBrandName('')}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors p-1 rounded-full hover:bg-slate-100"
+                      title="清除"
+                    >
+                      <X size={16} />
+                    </button>
+                  )}
+                </div>
+                {extractedBrands.length > 0 && (
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <span className="text-xs text-slate-500 flex items-center h-6">识别到的品牌:</span>
+                    {extractedBrands.map(brand => (
+                      <button
+                        key={brand}
+                        onClick={() => setBrandName(brand)}
+                        className={`text-xs px-2.5 py-1 rounded-full border transition-colors ${brandName === brand ? 'bg-blue-100 border-blue-300 text-blue-700 font-medium' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50 hover:border-slate-300'}`}
+                      >
+                        {brand}
+                      </button>
+                    ))}
+                  </div>
+                )}
                 <p className="text-xs text-slate-500 mt-3 leading-relaxed">
-                  输入品牌名称，AI 将结合右侧的授权文件库，自动为您核查该品牌是否被允许使用识别出的字体。
+                  输入品牌名称，AI 将结合下方的授权文件库，自动为您核查该品牌是否被允许使用识别出的字体。
                 </p>
               </div>
               
