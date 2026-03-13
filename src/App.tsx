@@ -242,7 +242,7 @@ export default function App() {
             <div className="w-9 h-9 bg-gradient-to-br from-blue-600 to-indigo-600 rounded-xl flex items-center justify-center text-white shadow-md shadow-blue-500/20">
               <ScanText size={20} strokeWidth={2.5} />
             </div>
-            <h1 className="text-xl font-bold tracking-tight text-slate-800">字体提取器</h1>
+            <h1 className="text-xl font-bold tracking-tight text-slate-800">Font Extractor</h1>
           </div>
           
           <div className="flex items-center gap-3">
@@ -273,7 +273,7 @@ export default function App() {
             transition={{ duration: 0.5 }}
           >
             <h2 className="text-4xl md:text-6xl font-extrabold tracking-tight text-slate-900 mb-6">
-              神秘<span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-600 to-indigo-600">小工具</span>
+              Font <span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-600 to-indigo-600">Extractor</span>
             </h2>
             <p className="text-lg md:text-xl text-slate-500 max-w-2xl mx-auto leading-relaxed">
               上传包含文字的图片，我们的 AI 将深度分析排版，精准识别所使用的字体及其设计特征。
@@ -286,9 +286,12 @@ export default function App() {
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.5, delay: 0.1 }}
-          className="space-y-10 max-w-4xl mx-auto"
+          className="max-w-6xl mx-auto"
         >
-          {isCropping && selectedImage ? (
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+            {/* 左侧：图片上传与操作区 */}
+            <div className="lg:col-span-7 xl:col-span-8 flex flex-col gap-6">
+              {isCropping && selectedImage ? (
             <ImageCropper
               imageSrc={selectedImage.base64}
               initialRegions={textRegions}
@@ -306,8 +309,57 @@ export default function App() {
             />
           )}
 
-          {/* 版权核查区域 (可选) */}
-          <div className="bg-white rounded-3xl p-6 md:p-8 border border-slate-200/60 shadow-sm relative overflow-hidden">
+          {/* 操作按钮移到左侧图片下方 */}
+          {selectedImage && !results.length && !isLoading && !isCropping && (
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              className="flex flex-col sm:flex-row justify-center gap-4 mt-2"
+            >
+              <button
+                onClick={handleAutoDetectRegions}
+                disabled={isDetectingRegions}
+                className="group flex-1 flex items-center justify-center gap-2 bg-white border-2 border-indigo-200 hover:border-indigo-300 text-indigo-700 px-4 py-4 rounded-2xl font-semibold text-lg shadow-sm hover:shadow-md transition-all duration-300 active:scale-95 disabled:opacity-70"
+              >
+                {isDetectingRegions ? (
+                  <div className="w-5 h-5 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
+                ) : (
+                  <Focus size={22} className="text-indigo-500 group-hover:text-indigo-600" />
+                )}
+                {isDetectingRegions ? '正在检测...' : '自动框选'}
+              </button>
+              <button
+                onClick={() => setIsCropping(true)}
+                className="group flex-1 flex items-center justify-center gap-2 bg-white border-2 border-slate-200 hover:border-slate-300 text-slate-700 px-4 py-4 rounded-2xl font-semibold text-lg shadow-sm hover:shadow-md transition-all duration-300 active:scale-95"
+              >
+                <Crop size={22} className="text-slate-500 group-hover:text-slate-700" />
+                手动裁剪
+              </button>
+              <button
+                onClick={handleExtract}
+                className="group flex-[1.5] flex items-center justify-center gap-3 bg-slate-900 hover:bg-slate-800 text-white px-6 py-4 rounded-2xl font-semibold text-lg shadow-xl shadow-slate-900/20 hover:shadow-2xl hover:shadow-slate-900/30 transition-all duration-300 active:scale-95"
+              >
+                <Sparkles size={22} className="text-blue-400 group-hover:animate-pulse" />
+                {croppedImage ? '识别裁剪区域' : '识别整图'}
+              </button>
+            </motion.div>
+          )}
+
+          {error && (
+            <motion.div 
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              className="bg-red-50 border border-red-200 text-red-700 px-6 py-4 rounded-2xl text-sm flex items-center gap-3 mt-2"
+            >
+              <AlertCircle size={20} className="shrink-0" />
+              <p className="font-medium">{error}</p>
+            </motion.div>
+          )}
+        </div>
+
+        {/* 右侧：版权核查区域 (可选) */}
+        <div className="lg:col-span-5 xl:col-span-4 flex flex-col">
+          <div className="bg-white rounded-3xl p-6 md:p-8 border border-slate-200/60 shadow-sm relative overflow-hidden h-full flex flex-col">
             <div className="absolute top-0 right-0 w-64 h-64 bg-gradient-to-br from-indigo-50 to-blue-50 rounded-full blur-3xl -z-10 opacity-50 translate-x-1/2 -translate-y-1/2"></div>
             
             <div className="flex items-center justify-between mb-6">
@@ -318,7 +370,7 @@ export default function App() {
               </div>
             </div>
             
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+            <div className="flex flex-col gap-6 flex-grow">
               <div>
                 <label className="block text-sm font-semibold text-slate-700 mb-2">客户品牌名称</label>
                 <input 
@@ -333,7 +385,7 @@ export default function App() {
                 </p>
               </div>
               
-              <div className="flex flex-col h-full">
+              <div className="flex flex-col h-full flex-grow">
                 <div className="flex items-center justify-between mb-2">
                   <label className="block text-sm font-semibold text-slate-700">授权/规则文件库</label>
                   <span className="text-xs font-medium text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">
@@ -384,53 +436,9 @@ export default function App() {
               </div>
             </div>
           </div>
-
-          {selectedImage && !results.length && !isLoading && !isCropping && (
-            <motion.div 
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              className="flex flex-col sm:flex-row justify-center gap-4 pt-4"
-            >
-              <button
-                onClick={handleAutoDetectRegions}
-                disabled={isDetectingRegions}
-                className="group flex items-center justify-center gap-2 bg-white border-2 border-indigo-200 hover:border-indigo-300 text-indigo-700 px-6 py-4 rounded-2xl font-semibold text-lg shadow-sm hover:shadow-md transition-all duration-300 active:scale-95 disabled:opacity-70"
-              >
-                {isDetectingRegions ? (
-                  <div className="w-5 h-5 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
-                ) : (
-                  <Focus size={22} className="text-indigo-500 group-hover:text-indigo-600" />
-                )}
-                {isDetectingRegions ? '正在检测文字...' : '自动框选文字'}
-              </button>
-              <button
-                onClick={() => setIsCropping(true)}
-                className="group flex items-center justify-center gap-2 bg-white border-2 border-slate-200 hover:border-slate-300 text-slate-700 px-6 py-4 rounded-2xl font-semibold text-lg shadow-sm hover:shadow-md transition-all duration-300 active:scale-95"
-              >
-                <Crop size={22} className="text-slate-500 group-hover:text-slate-700" />
-                手动裁剪
-              </button>
-              <button
-                onClick={handleExtract}
-                className="group flex items-center justify-center gap-3 bg-slate-900 hover:bg-slate-800 text-white px-8 py-4 rounded-2xl font-semibold text-lg shadow-xl shadow-slate-900/20 hover:shadow-2xl hover:shadow-slate-900/30 transition-all duration-300 active:scale-95"
-              >
-                <Sparkles size={22} className="text-blue-400 group-hover:animate-pulse" />
-                {croppedImage ? '识别裁剪区域' : '识别整图'}
-              </button>
-            </motion.div>
-          )}
-
-          {error && (
-            <motion.div 
-              initial={{ opacity: 0, height: 0 }}
-              animate={{ opacity: 1, height: 'auto' }}
-              className="bg-red-50 border border-red-200 text-red-700 px-6 py-4 rounded-2xl text-sm flex items-center gap-3"
-            >
-              <AlertCircle size={20} className="shrink-0" />
-              <p className="font-medium">{error}</p>
-            </motion.div>
-          )}
-        </motion.div>
+        </div>
+      </div>
+    </motion.div>
 
         {/* 结果区域 (全宽) */}
         <FontResults results={results} isLoading={isLoading} />

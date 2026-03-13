@@ -1,6 +1,7 @@
 import React, { useCallback, useState, useEffect } from 'react';
 import { UploadCloud, FileText, X, AlertTriangle, Loader2 } from 'lucide-react';
 import * as pdfjsLib from 'pdfjs-dist';
+// @ts-ignore
 import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.mjs?url';
 
 // Set up the worker for pdf.js using local file via Vite
@@ -64,10 +65,31 @@ export function ImageUploader({ onImageSelected, selectedImage, onClear }: Image
 
       const renderContext = {
         canvasContext: context,
-        viewport: viewport
+        viewport: viewport,
+        canvasFactory: {
+          create: (width: number, height: number) => {
+            const canvas = document.createElement('canvas');
+            canvas.width = width;
+            canvas.height = height;
+            return {
+              canvas,
+              context: canvas.getContext('2d')
+            };
+          },
+          reset: (canvasAndContext: any, width: number, height: number) => {
+            canvasAndContext.canvas.width = width;
+            canvasAndContext.canvas.height = height;
+          },
+          destroy: (canvasAndContext: any) => {
+            canvasAndContext.canvas.width = 0;
+            canvasAndContext.canvas.height = 0;
+            canvasAndContext.canvas = null;
+            canvasAndContext.context = null;
+          }
+        }
       };
 
-      await page.render(renderContext).promise;
+      await page.render(renderContext as any).promise;
       const base64 = canvas.toDataURL('image/jpeg', 0.95);
       onImageSelected(base64, 'image/jpeg');
     } catch (err) {
