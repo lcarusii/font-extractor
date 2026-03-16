@@ -24,6 +24,13 @@ export interface ChatMessage {
   content: string;
 }
 
+export interface DocumentChunk {
+  id: string;
+  docId: string;
+  text: string;
+  embedding: number[];
+}
+
 export async function saveLicenseDocument(doc: Omit<LicenseDocument, 'id' | 'timestamp'>): Promise<LicenseDocument> {
   const id = crypto.randomUUID();
   const newDoc: LicenseDocument = {
@@ -44,6 +51,26 @@ export async function getLicenseDocuments(): Promise<LicenseDocument[]> {
 
 export async function deleteLicenseDocument(id: string): Promise<void> {
   await del(`license_${id}`);
+  await deleteDocumentChunks(id);
+}
+
+export async function saveDocumentChunks(docId: string, chunks: DocumentChunk[]): Promise<void> {
+  await set(`chunks_${docId}`, chunks);
+}
+
+export async function getDocumentChunks(docId: string): Promise<DocumentChunk[]> {
+  return (await get<DocumentChunk[]>(`chunks_${docId}`)) || [];
+}
+
+export async function getAllDocumentChunks(): Promise<DocumentChunk[]> {
+  const allKeys = await keys();
+  const chunkKeys = allKeys.filter(k => typeof k === 'string' && k.startsWith('chunks_'));
+  const chunksArrays = await Promise.all(chunkKeys.map(k => get<DocumentChunk[]>(k as string)));
+  return chunksArrays.flat().filter((c): c is DocumentChunk => c !== undefined);
+}
+
+export async function deleteDocumentChunks(docId: string): Promise<void> {
+  await del(`chunks_${docId}`);
 }
 
 export async function getHistoryRecords(): Promise<HistoryRecord[]> {

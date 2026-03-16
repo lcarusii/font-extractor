@@ -10,6 +10,8 @@ export interface AIConfig {
   openaiBaseUrl: string;
   openaiModel: string;
   temperature?: number;
+  embeddingProvider?: 'gemini' | 'openai' | 'volcengine';
+  embeddingModel?: string;
 }
 
 const DEFAULT_CONFIG: AIConfig = {
@@ -20,6 +22,8 @@ const DEFAULT_CONFIG: AIConfig = {
   openaiBaseUrl: 'https://api.openai.com/v1',
   openaiModel: 'gpt-4o',
   temperature: 0.1,
+  embeddingProvider: 'gemini',
+  embeddingModel: 'gemini-embedding-2-preview',
 };
 
 export async function loadConfig(): Promise<AIConfig> {

@@ -1,6 +1,6 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { AIConfig } from "./configService";
-import { LicenseDocument } from "./dbService";
+import { LicenseDocument, DocumentChunk, getAllDocumentChunks } from "./dbService";
 
 export interface AlternativeFont {
   fontName: string;
@@ -9,6 +9,127 @@ export interface AlternativeFont {
     isAllowed: boolean;
     reason: string;
   };
+}
+
+export function chunkText(text: string, chunkSize: number = 1000, overlap: number = 200): string[] {
+  const chunks: string[] = [];
+  let i = 0;
+  while (i < text.length) {
+    chunks.push(text.slice(i, i + chunkSize));
+    i += chunkSize - overlap;
+  }
+  return chunks;
+}
+
+export async function generateEmbedding(text: string, config: AIConfig): Promise<number[]> {
+  if (config.embeddingProvider === 'gemini') {
+    const ai = new GoogleGenAI({ apiKey: config.geminiKey });
+    const result = await ai.models.embedContent({
+      model: config.embeddingModel || 'gemini-embedding-2-preview',
+      contents: [text]
+    });
+    return result.embeddings?.[0]?.values || [];
+  } else if (config.embeddingProvider === 'volcengine') {
+    const url = 'https://ark.cn-beijing.volces.com/api/v3/embeddings/multimodal';
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${config.openaiKey}`
+      },
+      body: JSON.stringify({
+        model: config.embeddingModel || 'doubao-embedding-vision-251215',
+        input: [
+          {
+            type: 'text',
+            text: text
+          }
+        ]
+      })
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(`Failed to generate embedding: ${err.error?.message || res.statusText}`);
+    }
+    const data = await res.json();
+    if (data.data && Array.isArray(data.data) && data.data.length > 0) {
+      if (typeof data.data[0] === 'number') {
+        return data.data;
+      } else if (data.data[0].embedding) {
+        return data.data[0].embedding;
+      }
+    }
+    
+    if (data.data && !Array.isArray(data.data) && data.data.embedding) {
+      return data.data.embedding;
+    } else if (data.embedding) {
+      return data.embedding;
+    } else {
+      throw new Error(`Unexpected embedding response: ${JSON.stringify(data)}`);
+    }
+  } else {
+    const baseUrl = config.openaiBaseUrl.replace(/\/+$/, '');
+    const url = baseUrl.endsWith('/embeddings') ? baseUrl : `${baseUrl}/embeddings`;
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${config.openaiKey}`
+      },
+      body: JSON.stringify({
+        model: config.embeddingModel || 'text-embedding-3-small',
+        input: text
+      })
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(`Failed to generate embedding: ${err.error?.message || res.statusText}`);
+    }
+    const data = await res.json();
+    if (data.data && Array.isArray(data.data) && data.data.length > 0) {
+      if (typeof data.data[0] === 'number') {
+        return data.data;
+      } else if (data.data[0].embedding) {
+        return data.data[0].embedding;
+      }
+    }
+    
+    if (data.data && !Array.isArray(data.data) && data.data.embedding) {
+      return data.data.embedding;
+    } else if (data.embedding) {
+      return data.embedding;
+    } else {
+      throw new Error(`Unexpected embedding response: ${JSON.stringify(data)}`);
+    }
+  }
+}
+
+export function cosineSimilarity(a: number[], b: number[]): number {
+  let dotProduct = 0;
+  let normA = 0;
+  let normB = 0;
+  for (let i = 0; i < a.length; i++) {
+    dotProduct += a[i] * b[i];
+    normA += a[i] * a[i];
+    normB += b[i] * b[i];
+  }
+  if (normA === 0 || normB === 0) return 0;
+  return dotProduct / (Math.sqrt(normA) * Math.sqrt(normB));
+}
+
+export async function searchVectorStore(query: string, config: AIConfig, topK: number = 3): Promise<DocumentChunk[]> {
+  const queryEmbedding = await generateEmbedding(query, config);
+  const allChunks = await getAllDocumentChunks();
+  
+  if (allChunks.length === 0) return [];
+
+  const scoredChunks = allChunks.map(chunk => ({
+    chunk,
+    score: cosineSimilarity(queryEmbedding, chunk.embedding)
+  }));
+  
+  scoredChunks.sort((a, b) => b.score - a.score);
+  return scoredChunks.slice(0, topK).map(sc => sc.chunk);
 }
 
 export interface FontResult {
@@ -43,22 +164,18 @@ export async function extractFontsFromImage(
 
   let licenseTextContext = "";
   if (brandName && licenseFiles && licenseFiles.length > 0) {
+    const query = `客户品牌 ${brandName} 授权的字体、商用规则、可用字体列表`;
+    const relevantChunks = await searchVectorStore(query, config, 10);
+    licenseTextContext = relevantChunks.map(c => c.text).join('\n\n---\n\n');
+
     prompt += `\n\n【任务 2：版权核查】
-用户提供了 ${licenseFiles.length} 个授权/规则文件，并询问客户品牌“${brandName}”是否可以合法商用这些识别出的字体。
-请【绝对严格】依据提供的授权文件内容进行核查，并为首选字体(primaryFont)以及每个备选字体(possibleAlternatives中的每一项)都增加一个 licenseCheck 对象字段：
-- isAllowed (boolean): 必须绝对基于用户上传的文件库进行判断。只有当文件中明确允许该品牌（或所有用户）商用此字体时，才返回 true。只要该字体没有在文件库中出现，或者未明确授权，一律返回 false（即使它是众所周知的免费开源字体）。
-- reason (string): 引用文件中的具体条款解释原因。如果文件中完全没有提及该字体，请务必说明“未在用户上传的授权文件库中找到该字体的授权记录，因此判定为不可用”。`;
-    
-    // Extract text from text-based files for OpenAI
-    licenseFiles.forEach(f => {
-      if (f.mimeType.includes('text') || f.mimeType.includes('json') || f.mimeType.includes('markdown')) {
-        try {
-          licenseTextContext += `\n--- 文件: ${f.name} ---\n${atob(f.base64.split(',')[1])}\n`;
-        } catch (e) {
-          console.error("Failed to decode license file", e);
-        }
-      }
-    });
+用户询问客户品牌“${brandName}”是否可以合法商用这些识别出的字体。
+请【绝对严格】依据以下检索到的授权文件片段进行核查，并为首选字体(primaryFont)以及每个备选字体(possibleAlternatives中的每一项)都增加一个 licenseCheck 对象字段：
+- isAllowed (boolean): 必须绝对基于检索到的文件片段进行判断。只有当片段中明确允许该品牌（或所有用户）商用此字体时，才返回 true。只要该字体没有在片段中出现，或者未明确授权，一律返回 false（即使它是众所周知的免费开源字体）。
+- reason (string): 引用片段中的具体条款解释原因。如果片段中完全没有提及该字体，请务必说明“未在检索到的授权记录中找到该字体的授权，因此判定为不可用”。
+
+检索到的授权文件片段：
+${licenseTextContext || '（无相关内容）'}`;
   }
 
   prompt += `\n\n【输出要求】
@@ -76,16 +193,6 @@ export async function extractFontsFromImage(
       }
     ];
 
-    if (brandName && licenseFiles && licenseFiles.length > 0) {
-      licenseFiles.forEach((file) => {
-        contents.push({
-          inlineData: {
-            data: file.base64.split(',')[1],
-            mimeType: file.mimeType,
-          }
-        });
-      });
-    }
     contents.push(prompt);
 
     let response;
@@ -362,35 +469,19 @@ export async function chatWithAgent(
   knowledgeBase: LicenseDocument[],
   config: AIConfig
 ): Promise<string> {
-  let kbText = "";
-  const geminiParts: any[] = [];
+  const lastUserMessage = messages.filter(m => m.role === 'user').pop()?.content || "";
+  const relevantChunks = await searchVectorStore(lastUserMessage, config, 10);
+  const kbText = relevantChunks.map(c => c.text).join('\n\n---\n\n');
 
-  for (const doc of knowledgeBase) {
-    if (doc.mimeType.includes('text') || doc.mimeType.includes('json') || doc.mimeType.includes('markdown')) {
-      try {
-        const text = atob(doc.base64.split(',')[1]);
-        kbText += `\n--- 文档: ${doc.name} ---\n${text}\n`;
-      } catch (e) {}
-    }
-    if (config.provider === 'gemini' && doc.mimeType.includes('pdf')) {
-       geminiParts.push({
-         inlineData: {
-           data: doc.base64.split(',')[1],
-           mimeType: doc.mimeType
-         }
-       });
-    }
-  }
-
-  const systemPrompt = `你是一个专业的字体与版权助手。请基于以下提供的知识库（授权文件）回答用户的问题。
+  const systemPrompt = `你是一个专业的字体与版权助手。请基于以下检索到的知识库（授权文件）片段回答用户的问题。
 要求：
 1. 回答必须极度简明扼要，直接给出结论，不要长篇大论。
 2. 采用最简单的纯文本排版，不要使用复杂的 Markdown 格式（如粗体、斜体、多级标题或表格）。
 3. 不要说任何废话或客套话。
-4. 【严格审查规则】：绝对基于用户上传的文件库进行判断。只要用户询问的字体没有在文件库中出现，或者未明确授权，一律判定为不可用（即使它是众所周知的免费开源字体），并明确告知“未在知识库中找到该字体的授权记录，判定为不可用”。
+4. 【严格审查规则】：绝对基于检索到的文件片段进行判断。只要用户询问的字体没有在检索到的片段中出现，或者未明确授权，一律判定为不可用（即使它是众所周知的免费开源字体），并明确告知“未在检索到的授权记录中找到该字体的授权，判定为不可用”。
 
-知识库内容：
-${kbText || '（暂无文本知识库）'}`;
+检索到的知识库片段：
+${kbText || '（暂无相关知识库片段）'}`;
 
   if (config.provider === 'gemini') {
     const ai = new GoogleGenAI({ apiKey: config.geminiKey });
@@ -410,12 +501,9 @@ ${kbText || '（暂无文本知识库）'}`;
        });
     }
 
-    // Inject system prompt and files into the first user message
+    // Inject system prompt into the first user message
     if (formattedMessages.length > 0 && formattedMessages[0].role === 'user') {
        formattedMessages[0].parts.unshift({ text: systemPrompt });
-       if (geminiParts.length > 0) {
-         formattedMessages[0].parts.push(...geminiParts);
-       }
     }
 
     let response;
@@ -477,37 +565,22 @@ export async function extractBrandsFromKnowledgeBase(
 ): Promise<string[]> {
   if (!knowledgeBase || knowledgeBase.length === 0) return [];
 
-  let kbText = '';
-  const geminiParts: any[] = [];
+  const query = "提取出所有被授权方（客户品牌、公司名称、产品名称等）";
+  const relevantChunks = await searchVectorStore(query, config, 10);
+  
+  let kbText = relevantChunks.map(c => c.text).join('\n\n---\n\n');
 
-  for (const doc of knowledgeBase) {
-    if (doc.mimeType.includes('text') || doc.mimeType.includes('json') || doc.mimeType.includes('markdown')) {
-      try {
-        const text = atob(doc.base64.split(',')[1]);
-        kbText += `\n--- 文档: ${doc.name} ---\n${text}\n`;
-      } catch (e) {}
-    }
-    if (config.provider === 'gemini' && doc.mimeType.includes('pdf')) {
-       geminiParts.push({
-         inlineData: {
-           data: doc.base64.split(',')[1],
-           mimeType: doc.mimeType
-         }
-       });
-    }
-  }
-
-  const prompt = `你是一个专业的文本分析助手。请分析以下授权文件内容，提取出其中提及的所有被授权方（客户品牌、公司名称、产品名称等）。
+  const prompt = `你是一个专业的文本分析助手。请分析以下检索到的授权文件片段，提取出其中提及的所有被授权方（客户品牌、公司名称、产品名称等）。
 请返回一个 JSON 数组，数组中只包含品牌名称的字符串。
 如果没有找到任何明确的品牌或公司名称，请返回空数组 []。
 请直接返回纯 JSON 数组，不要包含任何其他文本或 Markdown 标记（如 \`\`\`json）。
 
-授权文件内容：
-${kbText || '（见附件）'}`;
+检索到的授权文件片段：
+${kbText || '（无相关内容）'}`;
 
   if (config.provider === 'gemini') {
     const ai = new GoogleGenAI({ apiKey: config.geminiKey });
-    const contents: any[] = [{ role: 'user', parts: [{ text: prompt }, ...geminiParts] }];
+    const contents: any[] = [{ role: 'user', parts: [{ text: prompt }] }];
     
     let response;
     try {

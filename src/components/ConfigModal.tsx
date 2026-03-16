@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { AIConfig, AIProvider, loadConfig, saveConfig } from '../services/configService';
-import { X, Settings2, Save } from 'lucide-react';
+import { X, Settings2, Save, Database, ChevronDown } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
 interface ConfigModalProps {
@@ -33,8 +33,8 @@ const PROVIDER_PRESETS: Record<AIProvider, { name: string, desc: string, baseUrl
     name: '火山引擎 (Doubao)',
     desc: '豆包大模型',
     baseUrl: 'https://ark.cn-beijing.volces.com/api/v3',
-    defaultModel: 'ep-xxxxxx-xxx',
-    models: [] // Volcengine uses custom endpoint IDs
+    defaultModel: 'doubao-seed-2-0-lite-260215',
+    models: ['doubao-seed-2-0-lite-260215', 'doubao-seed-2-0-pro-260215']
   },
   zhipu: {
     name: '智谱 AI (GLM)',
@@ -58,6 +58,7 @@ const PROVIDER_PRESETS: Record<AIProvider, { name: string, desc: string, baseUrl
 
 export function ConfigModal({ isOpen, onClose, onSave }: ConfigModalProps) {
   const [config, setConfig] = useState<AIConfig | null>(null);
+  const [showModelDropdown, setShowModelDropdown] = useState(false);
 
   useEffect(() => {
     if (isOpen) {
@@ -140,20 +141,43 @@ export function ConfigModal({ isOpen, onClose, onSave }: ConfigModalProps) {
                     className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 outline-none transition-all bg-slate-50 focus:bg-white"
                   />
                 </div>
-                <div>
+                <div className="relative">
                   <label className="block text-sm font-semibold text-slate-700 mb-2">模型名称</label>
-                  <input 
-                    type="text" 
-                    list="gemini-models"
-                    value={config.geminiModel}
-                    onChange={(e) => setConfig({ ...config, geminiModel: e.target.value })}
-                    className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 outline-none transition-all bg-slate-50 focus:bg-white"
-                  />
-                  <datalist id="gemini-models">
-                    {PROVIDER_PRESETS.gemini.models?.map(m => (
-                      <option key={m} value={m} />
-                    ))}
-                  </datalist>
+                  <div className="relative">
+                    <input 
+                      type="text" 
+                      value={config.geminiModel}
+                      onChange={(e) => setConfig({ ...config, geminiModel: e.target.value })}
+                      onFocus={() => setShowModelDropdown(true)}
+                      onBlur={() => setTimeout(() => setShowModelDropdown(false), 200)}
+                      className="w-full px-4 py-3 pr-10 rounded-xl border border-slate-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 outline-none transition-all bg-slate-50 focus:bg-white"
+                    />
+                    <ChevronDown size={18} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                    
+                    <AnimatePresence>
+                      {showModelDropdown && PROVIDER_PRESETS.gemini.models && PROVIDER_PRESETS.gemini.models.length > 0 && (
+                        <motion.div
+                          initial={{ opacity: 0, y: -10 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          exit={{ opacity: 0, y: -10 }}
+                          className="absolute z-10 w-full mt-1 bg-white border border-slate-200 rounded-xl shadow-lg max-h-60 overflow-y-auto py-1"
+                        >
+                          {PROVIDER_PRESETS.gemini.models.map(m => (
+                            <div
+                              key={m}
+                              className="px-4 py-2 text-sm text-slate-700 hover:bg-blue-50 hover:text-blue-700 cursor-pointer transition-colors"
+                              onClick={() => {
+                                setConfig({ ...config, geminiModel: m });
+                                setShowModelDropdown(false);
+                              }}
+                            >
+                              {m}
+                            </div>
+                          ))}
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </div>
                 </div>
               </motion.div>
             )}
@@ -184,24 +208,44 @@ export function ConfigModal({ isOpen, onClose, onSave }: ConfigModalProps) {
                     className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 outline-none transition-all bg-slate-50 focus:bg-white"
                   />
                 </div>
-                <div>
+                <div className="relative">
                   <label className="block text-sm font-semibold text-slate-700 mb-2">模型名称</label>
-                  <input 
-                    type="text" 
-                    list={`models-${config.provider}`}
-                    value={config.openaiModel}
-                    onChange={(e) => setConfig({ ...config, openaiModel: e.target.value })}
-                    placeholder={PROVIDER_PRESETS[config.provider].defaultModel || "输入模型名称"}
-                    className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 outline-none transition-all bg-slate-50 focus:bg-white"
-                  />
-                  <datalist id={`models-${config.provider}`}>
-                    {PROVIDER_PRESETS[config.provider].models?.map(m => (
-                      <option key={m} value={m} />
-                    ))}
-                  </datalist>
-                  {config.provider === 'volcengine' && (
-                    <p className="text-xs text-slate-500 mt-2">火山引擎需要输入您创建的接入点 ID (Endpoint ID)，例如：ep-20240101-xxxxx</p>
-                  )}
+                  <div className="relative">
+                    <input 
+                      type="text" 
+                      value={config.openaiModel}
+                      onChange={(e) => setConfig({ ...config, openaiModel: e.target.value })}
+                      onFocus={() => setShowModelDropdown(true)}
+                      onBlur={() => setTimeout(() => setShowModelDropdown(false), 200)}
+                      placeholder={PROVIDER_PRESETS[config.provider].defaultModel || "输入模型名称"}
+                      className="w-full px-4 py-3 pr-10 rounded-xl border border-slate-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 outline-none transition-all bg-slate-50 focus:bg-white"
+                    />
+                    <ChevronDown size={18} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                    
+                    <AnimatePresence>
+                      {showModelDropdown && PROVIDER_PRESETS[config.provider].models && PROVIDER_PRESETS[config.provider].models!.length > 0 && (
+                        <motion.div
+                          initial={{ opacity: 0, y: -10 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          exit={{ opacity: 0, y: -10 }}
+                          className="absolute z-10 w-full mt-1 bg-white border border-slate-200 rounded-xl shadow-lg max-h-60 overflow-y-auto py-1"
+                        >
+                          {PROVIDER_PRESETS[config.provider].models!.map(m => (
+                            <div
+                              key={m}
+                              className="px-4 py-2 text-sm text-slate-700 hover:bg-blue-50 hover:text-blue-700 cursor-pointer transition-colors"
+                              onClick={() => {
+                                setConfig({ ...config, openaiModel: m });
+                                setShowModelDropdown(false);
+                              }}
+                            >
+                              {m}
+                            </div>
+                          ))}
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </div>
                 </div>
               </motion.div>
             )}
@@ -222,6 +266,62 @@ export function ConfigModal({ isOpen, onClose, onSave }: ConfigModalProps) {
               <div className="flex justify-between text-xs text-slate-400 mt-1">
                 <span>更精确 (0.0)</span>
                 <span>更随机 (1.0)</span>
+              </div>
+            </div>
+
+            {/* Embedding Settings */}
+            <div className="pt-4 border-t border-slate-100 space-y-4">
+              <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2">
+                <Database size={16} className="text-indigo-500" />
+                向量检索配置 (RAG)
+              </h3>
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                <button
+                  onClick={() => setConfig({ ...config, embeddingProvider: 'gemini', embeddingModel: 'gemini-embedding-2-preview' })}
+                  className={`p-3 rounded-xl border-2 text-left transition-all ${
+                    config.embeddingProvider === 'gemini' 
+                      ? 'border-indigo-500 bg-indigo-50/50 shadow-sm' 
+                      : 'border-slate-200 hover:border-slate-300 bg-white'
+                  }`}
+                >
+                  <div className="font-bold text-slate-800 mb-1 text-sm">Google Gemini</div>
+                  <div className="text-xs text-slate-500">gemini-embedding-2-preview</div>
+                </button>
+                <button
+                  onClick={() => setConfig({ ...config, embeddingProvider: 'openai', embeddingModel: 'text-embedding-3-small' })}
+                  className={`p-3 rounded-xl border-2 text-left transition-all ${
+                    config.embeddingProvider === 'openai' 
+                      ? 'border-indigo-500 bg-indigo-50/50 shadow-sm' 
+                      : 'border-slate-200 hover:border-slate-300 bg-white'
+                  }`}
+                >
+                  <div className="font-bold text-slate-800 mb-1 text-sm">OpenAI 兼容</div>
+                  <div className="text-xs text-slate-500">text-embedding-3-small</div>
+                </button>
+                <button
+                  onClick={() => setConfig({ ...config, embeddingProvider: 'volcengine', embeddingModel: 'doubao-embedding-vision-251215' })}
+                  className={`p-3 rounded-xl border-2 text-left transition-all ${
+                    config.embeddingProvider === 'volcengine' 
+                      ? 'border-indigo-500 bg-indigo-50/50 shadow-sm' 
+                      : 'border-slate-200 hover:border-slate-300 bg-white'
+                  }`}
+                >
+                  <div className="font-bold text-slate-800 mb-1 text-sm">火山引擎 (Doubao)</div>
+                  <div className="text-xs text-slate-500">doubao-embedding-vision</div>
+                </button>
+              </div>
+              <div>
+                <label className="block text-sm font-semibold text-slate-700 mb-2">Embedding 模型名称</label>
+                <input 
+                  type="text" 
+                  value={config.embeddingModel || ''}
+                  onChange={(e) => setConfig({ ...config, embeddingModel: e.target.value })}
+                  placeholder="例如：text-embedding-3-small"
+                  className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none transition-all bg-slate-50 focus:bg-white"
+                />
+                <p className="text-xs text-slate-500 mt-2">
+                  注意：更改 Embedding 模型后，之前上传的授权文件向量将会失效，您可能需要重新上传文件以构建新的向量库。
+                </p>
               </div>
             </div>
           </div>

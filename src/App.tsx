@@ -2,8 +2,8 @@ import React, { useState, useRef, useEffect } from 'react';
 import { ImageUploader } from './components/ImageUploader';
 import { ImageCropper } from './components/ImageCropper';
 import { FontResults } from './components/FontResults';
-import { extractFontsFromImage, detectTextRegions, extractBrandsFromKnowledgeBase } from './services/aiService';
-import { getLicenseDocuments, saveLicenseDocument, deleteLicenseDocument, LicenseDocument, saveHistoryRecord, HistoryRecord } from './services/dbService';
+import { extractFontsFromImage, detectTextRegions, extractBrandsFromKnowledgeBase, chunkText, generateEmbedding } from './services/aiService';
+import { getLicenseDocuments, saveLicenseDocument, deleteLicenseDocument, LicenseDocument, saveHistoryRecord, HistoryRecord, saveDocumentChunks, DocumentChunk } from './services/dbService';
 import { AIConfig, loadConfig } from './services/configService';
 import { ConfigModal } from './components/ConfigModal';
 import { AgentChat } from './components/AgentChat';
@@ -11,6 +11,11 @@ import { HistoryModal } from './components/HistoryModal';
 import { Type, Sparkles, ScanText, AlertCircle, Shield, Upload, FileText, X, Trash2, Database, Settings, MessageSquareText, Clock, Crop, Focus, Wand2, Loader2 } from 'lucide-react';
 import { motion } from 'motion/react';
 import * as XLSX from 'xlsx';
+import * as pdfjsLib from 'pdfjs-dist';
+// @ts-ignore
+import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.mjs?url';
+
+pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
 
 export default function App() {
   const [selectedImage, setSelectedImage] = useState<{ base64: string; mimeType: string } | null>(null);
@@ -92,14 +97,55 @@ export default function App() {
     setTextRegions(null);
   };
 
+  const processAndSaveDocument = async (file: File, base64: string, mimeType: string, textContent: string, name: string) => {
+    if (!config) throw new Error("AI config not loaded");
+    
+    // Save the document itself
+    const doc = await saveLicenseDocument({
+      base64,
+      mimeType,
+      name
+    });
+    const docId = doc.id;
+
+    // Process for RAG
+    if (textContent.trim()) {
+      const chunks = chunkText(textContent);
+      const documentChunks: DocumentChunk[] = [];
+      
+      for (let i = 0; i < chunks.length; i++) {
+        const text = chunks[i];
+        try {
+          const embedding = await generateEmbedding(text, config);
+          documentChunks.push({
+            id: `${docId}_chunk_${i}`,
+            docId,
+            text,
+            embedding
+          });
+        } catch (e) {
+          console.error(`Failed to generate embedding for chunk ${i}`, e);
+          // Continue with other chunks even if one fails
+        }
+      }
+      
+      if (documentChunks.length > 0) {
+        await saveDocumentChunks(docId, documentChunks);
+      }
+    }
+    
+    await loadLicenses();
+  };
+
   const handleLicenseFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file) return;
+    if (!file || !config) return;
     
     const isExcel = file.name.endsWith('.xlsx') || file.name.endsWith('.xls') || file.name.endsWith('.csv');
-    const isTextOrPdf = file.type.includes('pdf') || file.type.includes('text') || file.name.endsWith('.md');
+    const isPdf = file.type.includes('pdf');
+    const isText = file.type.includes('text') || file.name.endsWith('.md');
 
-    if (!isExcel && !isTextOrPdf) {
+    if (!isExcel && !isPdf && !isText) {
       setError('请上传 PDF、文本文件 (txt, md) 或 Excel/CSV 表格。');
       return;
     }
@@ -126,43 +172,76 @@ export default function App() {
         reader.onload = async (event) => {
           if (event.target?.result) {
             try {
-              await saveLicenseDocument({
-                base64: event.target.result as string,
-                mimeType: 'text/plain',
-                name: file.name + '.txt' // 转换为文本格式保存
-              });
-              await loadLicenses();
+              await processAndSaveDocument(
+                file,
+                event.target.result as string,
+                'text/plain',
+                combinedText,
+                file.name + '.txt'
+              );
             } catch (err) {
               console.error("Failed to save license:", err);
               setError('保存授权文件失败。');
             } finally {
               setIsUploadingLicense(false);
-              if (fileInputRef.current) {
-                fileInputRef.current.value = '';
-              }
+              if (fileInputRef.current) fileInputRef.current.value = '';
             }
           }
         };
         reader.readAsDataURL(blob);
-      } else {
+      } else if (isPdf) {
+        const arrayBuffer = await file.arrayBuffer();
+        const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer });
+        const pdf = await loadingTask.promise;
+        let combinedText = '';
+        
+        for (let i = 1; i <= pdf.numPages; i++) {
+          const page = await pdf.getPage(i);
+          const textContent = await page.getTextContent();
+          const pageText = textContent.items.map((item: any) => item.str).join(' ');
+          combinedText += `\n--- 第 ${i} 页 ---\n${pageText}\n`;
+        }
+
         const reader = new FileReader();
         reader.onload = async (event) => {
           if (event.target?.result) {
             try {
-              await saveLicenseDocument({
-                base64: event.target.result as string,
-                mimeType: file.type || 'text/plain',
-                name: file.name
-              });
-              await loadLicenses();
+              await processAndSaveDocument(
+                file,
+                event.target.result as string,
+                file.type,
+                combinedText,
+                file.name
+              );
             } catch (err) {
               console.error("Failed to save license:", err);
               setError('保存授权文件失败。');
             } finally {
               setIsUploadingLicense(false);
-              if (fileInputRef.current) {
-                fileInputRef.current.value = '';
-              }
+              if (fileInputRef.current) fileInputRef.current.value = '';
+            }
+          }
+        };
+        reader.readAsDataURL(file);
+      } else {
+        const textContent = await file.text();
+        const reader = new FileReader();
+        reader.onload = async (event) => {
+          if (event.target?.result) {
+            try {
+              await processAndSaveDocument(
+                file,
+                event.target.result as string,
+                file.type || 'text/plain',
+                textContent,
+                file.name
+              );
+            } catch (err) {
+              console.error("Failed to save license:", err);
+              setError('保存授权文件失败。');
+            } finally {
+              setIsUploadingLicense(false);
+              if (fileInputRef.current) fileInputRef.current.value = '';
             }
           }
         };
