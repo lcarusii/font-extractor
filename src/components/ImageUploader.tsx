@@ -53,7 +53,10 @@ export function ImageUploader({ onImageSelected, selectedImage, onClear }: Image
       const pdf = await loadingTask.promise;
       const page = await pdf.getPage(1); // Get first page
 
-      const scale = 2.0; // High resolution for better text recognition
+      const unscaledViewport = page.getViewport({ scale: 1.0 });
+      const maxDimension = Math.max(unscaledViewport.width, unscaledViewport.height);
+      // Target 3000px for the longest side to ensure high resolution for cropping, cap between 2.0 and 5.0
+      const scale = Math.max(2.0, Math.min(3000 / maxDimension, 5.0));
       const viewport = page.getViewport({ scale });
 
       const canvas = document.createElement('canvas');
