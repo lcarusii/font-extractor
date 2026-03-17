@@ -12,6 +12,8 @@ export interface AIConfig {
   temperature?: number;
   embeddingProvider?: 'gemini' | 'openai' | 'volcengine';
   embeddingModel?: string;
+  embeddingApiKey?: string;
+  embeddingBaseUrl?: string;
 }
 
 const DEFAULT_CONFIG: AIConfig = {
@@ -24,6 +26,8 @@ const DEFAULT_CONFIG: AIConfig = {
   temperature: 0.1,
   embeddingProvider: 'gemini',
   embeddingModel: 'gemini-embedding-2-preview',
+  embeddingApiKey: '',
+  embeddingBaseUrl: '',
 };
 
 export async function loadConfig(): Promise<AIConfig> {

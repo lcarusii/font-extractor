@@ -310,17 +310,44 @@ export function ConfigModal({ isOpen, onClose, onSave }: ConfigModalProps) {
                   <div className="text-xs text-slate-500">doubao-embedding-vision</div>
                 </button>
               </div>
-              <div>
-                <label className="block text-sm font-semibold text-slate-700 mb-2">Embedding 模型名称</label>
-                <input 
-                  type="text" 
-                  value={config.embeddingModel || ''}
-                  onChange={(e) => setConfig({ ...config, embeddingModel: e.target.value })}
-                  placeholder="例如：text-embedding-3-small"
-                  className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none transition-all bg-slate-50 focus:bg-white"
-                />
+              <div className="space-y-3">
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 mb-2">Embedding 模型名称</label>
+                  <input 
+                    type="text" 
+                    value={config.embeddingModel || ''}
+                    onChange={(e) => setConfig({ ...config, embeddingModel: e.target.value })}
+                    placeholder="例如：text-embedding-3-small"
+                    className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none transition-all bg-slate-50 focus:bg-white"
+                  />
+                </div>
+                
+                {config.embeddingProvider !== 'gemini' && (
+                  <div>
+                    <label className="block text-sm font-semibold text-slate-700 mb-2">Embedding Base URL (可选)</label>
+                    <input 
+                      type="text" 
+                      value={config.embeddingBaseUrl || ''}
+                      onChange={(e) => setConfig({ ...config, embeddingBaseUrl: e.target.value })}
+                      placeholder="留空则使用上方对话模型的 Base URL"
+                      className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none transition-all bg-slate-50 focus:bg-white"
+                    />
+                  </div>
+                )}
+                
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 mb-2">Embedding API Key (可选)</label>
+                  <input 
+                    type="password" 
+                    value={config.embeddingApiKey || ''}
+                    onChange={(e) => setConfig({ ...config, embeddingApiKey: e.target.value })}
+                    placeholder="留空则使用上方对话模型的 API Key"
+                    className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none transition-all bg-slate-50 focus:bg-white"
+                  />
+                </div>
+                
                 <p className="text-xs text-slate-500 mt-2">
-                  注意：更改 Embedding 模型后，之前上传的授权文件向量将会失效，您可能需要重新上传文件以构建新的向量库。
+                  注意：更改 Embedding 模型或配置后，之前上传的授权文件向量将会失效，您可能需要重新上传文件以构建新的向量库。
                 </p>
               </div>
             </div>

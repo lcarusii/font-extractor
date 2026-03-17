@@ -23,19 +23,20 @@ export function chunkText(text: string, chunkSize: number = 1000, overlap: numbe
 
 export async function generateEmbedding(text: string, config: AIConfig): Promise<number[]> {
   if (config.embeddingProvider === 'gemini') {
-    const ai = new GoogleGenAI({ apiKey: config.geminiKey });
+    const ai = new GoogleGenAI({ apiKey: config.embeddingApiKey || config.geminiKey });
     const result = await ai.models.embedContent({
       model: config.embeddingModel || 'gemini-embedding-2-preview',
       contents: [text]
     });
     return result.embeddings?.[0]?.values || [];
   } else if (config.embeddingProvider === 'volcengine') {
-    const url = 'https://ark.cn-beijing.volces.com/api/v3/embeddings/multimodal';
+    const baseUrl = config.embeddingBaseUrl ? config.embeddingBaseUrl.replace(/\/+$/, '') : 'https://ark.cn-beijing.volces.com/api/v3';
+    const url = baseUrl.endsWith('/embeddings/multimodal') || baseUrl.endsWith('/embeddings') ? baseUrl : `${baseUrl}/embeddings/multimodal`;
     const res = await fetch(url, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${config.openaiKey}`
+        'Authorization': `Bearer ${config.embeddingApiKey || config.openaiKey}`
       },
       body: JSON.stringify({
         model: config.embeddingModel || 'doubao-embedding-vision-251215',
@@ -68,13 +69,13 @@ export async function generateEmbedding(text: string, config: AIConfig): Promise
       throw new Error(`Unexpected embedding response: ${JSON.stringify(data)}`);
     }
   } else {
-    const baseUrl = config.openaiBaseUrl.replace(/\/+$/, '');
+    const baseUrl = (config.embeddingBaseUrl || config.openaiBaseUrl).replace(/\/+$/, '');
     const url = baseUrl.endsWith('/embeddings') ? baseUrl : `${baseUrl}/embeddings`;
     const res = await fetch(url, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${config.openaiKey}`
+        'Authorization': `Bearer ${config.embeddingApiKey || config.openaiKey}`
       },
       body: JSON.stringify({
         model: config.embeddingModel || 'text-embedding-3-small',
