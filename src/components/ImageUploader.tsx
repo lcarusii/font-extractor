@@ -7,6 +7,11 @@ import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.mjs?url';
 // Set up the worker for pdf.js using local file via Vite
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
 
+// Keep payloads small for AI vision requests.
+// This app is a Vite SPA (no upload API route), so "upload size" issues usually show up when the base64 image is sent to the AI provider.
+const MAX_LONG_SIDE = 2500;
+const JPEG_QUALITY = 0.85;
+
 interface ImageUploaderProps {
   onImageSelected: (base64: string, mimeType: string) => void;
   selectedImage: string | null;
@@ -17,6 +22,45 @@ export function ImageUploader({ onImageSelected, selectedImage, onClear }: Image
   const [isDragging, setIsDragging] = useState(false);
   const [warning, setWarning] = useState<string | null>(null);
   const [isConverting, setIsConverting] = useState(false);
+
+  const readFileAsDataUrl = (file: File): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result as string);
+      reader.onerror = () => reject(reader.error);
+      reader.readAsDataURL(file);
+    });
+  };
+
+  const compressImageDataUrl = async (dataUrl: string): Promise<string> => {
+    const img = new Image();
+    img.decoding = 'async';
+    img.src = dataUrl;
+
+    await new Promise<void>((resolve, reject) => {
+      img.onload = () => resolve();
+      img.onerror = () => reject(new Error('Failed to load image for compression'));
+    });
+
+    const width = img.naturalWidth || img.width;
+    const height = img.naturalHeight || img.height;
+    if (!width || !height) return dataUrl;
+
+    const longSide = Math.max(width, height);
+    const scale = Math.min(1, MAX_LONG_SIDE / longSide);
+    const targetWidth = Math.max(1, Math.round(width * scale));
+    const targetHeight = Math.max(1, Math.round(height * scale));
+
+    const canvas = document.createElement('canvas');
+    canvas.width = targetWidth;
+    canvas.height = targetHeight;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return dataUrl;
+
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(img, 0, 0, targetWidth, targetHeight);
+    return canvas.toDataURL('image/jpeg', JPEG_QUALITY);
+  };
 
   useEffect(() => {
     if (selectedImage) {
@@ -55,8 +99,9 @@ export function ImageUploader({ onImageSelected, selectedImage, onClear }: Image
 
       const unscaledViewport = page.getViewport({ scale: 1.0 });
       const maxDimension = Math.max(unscaledViewport.width, unscaledViewport.height);
-      // Target 3000px for the longest side to ensure high resolution for cropping, cap between 2.0 and 5.0
-      const scale = Math.max(2.0, Math.min(3000 / maxDimension, 5.0));
+      // Render a smaller but still readable image for vision APIs.
+      // Cap the scale to avoid generating extremely large base64 payloads.
+      const scale = Math.min(4.0, Math.max(0.2, MAX_LONG_SIDE / maxDimension));
       const viewport = page.getViewport({ scale });
 
       const canvas = document.createElement('canvas');
@@ -93,7 +138,7 @@ export function ImageUploader({ onImageSelected, selectedImage, onClear }: Image
       };
 
       await page.render(renderContext as any).promise;
-      const base64 = canvas.toDataURL('image/jpeg', 0.95);
+      const base64 = canvas.toDataURL('image/jpeg', JPEG_QUALITY);
       onImageSelected(base64, 'image/jpeg');
     } catch (err) {
       console.error("PDF conversion error:", err);
@@ -103,12 +148,12 @@ export function ImageUploader({ onImageSelected, selectedImage, onClear }: Image
     }
   };
 
-  const processFile = (file: File) => {
+  const processFile = async (file: File) => {
     const fileName = file.name.toLowerCase();
     const isPdfOrAi = file.type === 'application/pdf' || fileName.endsWith('.pdf') || fileName.endsWith('.ai') || file.type === 'application/postscript' || file.type === 'application/illustrator';
     
     if (isPdfOrAi) {
-      convertPdfToImage(file);
+      await convertPdfToImage(file);
       return;
     }
 
@@ -117,28 +162,38 @@ export function ImageUploader({ onImageSelected, selectedImage, onClear }: Image
       return;
     }
 
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      if (event.target?.result) {
-        onImageSelected(event.target.result as string, file.type);
+    try {
+      setIsConverting(true);
+      const originalDataUrl = await readFileAsDataUrl(file);
+
+      // Compress/resize to reduce downstream payload size.
+      // Always output JPEG because vision APIs typically accept it well and it tends to be smaller.
+      let nextDataUrl = originalDataUrl;
+      try {
+        nextDataUrl = await compressImageDataUrl(originalDataUrl);
+      } catch (e) {
+        console.warn('Image compression failed, falling back to original', e);
       }
-    };
-    reader.readAsDataURL(file);
+
+      onImageSelected(nextDataUrl, 'image/jpeg');
+    } finally {
+      setIsConverting(false);
+    }
   };
 
-  const handleDrop = useCallback((e: React.DragEvent) => {
+  const handleDrop = useCallback(async (e: React.DragEvent) => {
     e.preventDefault();
     setIsDragging(false);
     if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-      processFile(e.dataTransfer.files[0]);
+      await processFile(e.dataTransfer.files[0]);
     }
-  }, []);
+  }, [processFile]);
 
-  const handleFileInput = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileInput = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
-      processFile(e.target.files[0]);
+      await processFile(e.target.files[0]);
     }
-  }, []);
+  }, [processFile]);
 
   if (selectedImage) {
     return (

@@ -3,6 +3,10 @@ import ReactCrop, { type Crop, type PixelCrop } from 'react-image-crop';
 import 'react-image-crop/dist/ReactCrop.css';
 import { Check, X, MousePointer2 } from 'lucide-react';
 
+// Keep downstream AI payload smaller.
+const MAX_CROP_LONG_SIDE = 2000;
+const JPEG_QUALITY = 0.85;
+
 interface ImageCropperProps {
   imageSrc: string;
   initialRegions?: {x: number, y: number, width: number, height: number}[] | null;
@@ -77,8 +81,27 @@ export function ImageCropper({ imageSrc, initialRegions, onCropComplete, onCance
       targetHeight
     );
 
-    // Convert canvas to base64
-    const base64Image = canvas.toDataURL('image/jpeg', 0.95);
+    // Convert canvas to base64, but keep it smaller for vision APIs.
+    const cropLongSide = Math.max(targetWidth, targetHeight);
+    let outputCanvas = canvas;
+    if (cropLongSide > MAX_CROP_LONG_SIDE) {
+      const scale = MAX_CROP_LONG_SIDE / cropLongSide;
+      const outW = Math.max(1, Math.floor(targetWidth * scale));
+      const outH = Math.max(1, Math.floor(targetHeight * scale));
+
+      const scaledCanvas = document.createElement('canvas');
+      scaledCanvas.width = outW;
+      scaledCanvas.height = outH;
+      const scaledCtx = scaledCanvas.getContext('2d');
+
+      if (scaledCtx) {
+        scaledCtx.imageSmoothingQuality = 'high';
+        scaledCtx.drawImage(canvas, 0, 0, outW, outH);
+        outputCanvas = scaledCanvas;
+      }
+    }
+
+    const base64Image = outputCanvas.toDataURL('image/jpeg', JPEG_QUALITY);
     onCropComplete(base64Image);
   };
 
